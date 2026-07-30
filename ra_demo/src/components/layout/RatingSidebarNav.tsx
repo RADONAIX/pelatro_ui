@@ -70,6 +70,7 @@ const REPORT_GROUP_ICON: Record<string, RatingNavChild["icon"]> = {
 export function RatingSidebarNav({
   collapsed,
   items = RATING_NAV,
+  availablePaths = RATING_AVAILABLE_PATHS,
 }: {
   collapsed: boolean;
   /**
@@ -79,6 +80,13 @@ export function RatingSidebarNav({
    * scope rule in one place.
    */
   items?: RatingNavItem[];
+  /**
+   * Paths that are built and therefore link rather than render as "soon".
+   * Defaults to the phase-1 paths derived from RATING_NAV. The Sidebar widens
+   * it when it injects entries this module's nav does not declare — Controls
+   * and Data Sources under Operations — which would otherwise be disabled.
+   */
+  availablePaths?: ReadonlySet<string>;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const t = useT();
@@ -170,7 +178,7 @@ export function RatingSidebarNav({
         // the mediation sidebar gives its own report catalog.
         if (
           item.to === "/rating/reports" &&
-          RATING_AVAILABLE_PATHS.has(item.to)
+          availablePaths.has(item.to)
         ) {
           const open = openGroups[item.to] ?? onReports;
           if (collapsed) {
@@ -237,7 +245,7 @@ export function RatingSidebarNav({
             </div>
           );
         }
-        const available = RATING_AVAILABLE_PATHS.has(item.to);
+        const available = availablePaths.has(item.to);
         const active = children
           ? children.some((c) => isActive(c.to))
           : isActive(item.to);
@@ -287,7 +295,7 @@ export function RatingSidebarNav({
                 <div className="mt-1 mb-1 ml-4 pl-3 border-l border-sidebar-border space-y-0.5">
                   {children.map((c) => {
                     const CIcon = c.icon;
-                    if (!RATING_AVAILABLE_PATHS.has(c.to)) {
+                    if (!availablePaths.has(c.to)) {
                       return (
                         <SoonRow
                           key={c.to}
@@ -329,7 +337,7 @@ export function RatingSidebarNav({
               <Link
                 to={
                   (
-                    children.find((c) => RATING_AVAILABLE_PATHS.has(c.to)) ??
+                    children.find((c) => availablePaths.has(c.to)) ??
                     children[0]
                   ).to
                 }
@@ -361,7 +369,7 @@ export function RatingSidebarNav({
                   <div className="px-1.5 space-y-0.5">
                     {children.map((c) => {
                       const CIcon = c.icon;
-                      if (!RATING_AVAILABLE_PATHS.has(c.to)) {
+                      if (!availablePaths.has(c.to)) {
                         return (
                           <SoonRow
                             key={c.to}

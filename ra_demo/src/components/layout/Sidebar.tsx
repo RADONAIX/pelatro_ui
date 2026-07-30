@@ -1,10 +1,10 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Settings2, ShieldCheck } from "lucide-react";
 import { useMemo } from "react";
 import { useT } from "@/lib/i18n";
 import { Tooltip } from "@/components/ui-kit/Tooltip";
 import { RatingSidebarNav } from "@/components/layout/RatingSidebarNav";
 import { AssuranceSidebarNav } from "@/components/layout/AssuranceSidebarNav";
-import { RATING_NAV } from "@/lib/rating/nav";
+import { RATING_NAV, RATING_AVAILABLE_PATHS, type RatingNavItem } from "@/lib/rating/nav";
 import { useAssuranceScope } from "@/lib/assuranceScope";
 
 // ---------------------------------------------------------------------------
@@ -31,6 +31,9 @@ const RATING_ONLY_PATHS = new Set(["/rating/rules", "/rating/catalog"]);
 
 const RATING_SCOPE_ID = "rating";
 
+/** The group whose children this file replaces wholesale. */
+const OPERATIONS_PATH = "/rating/admin";
+
 export function Sidebar({
   collapsed,
   onToggle,
@@ -39,14 +42,49 @@ export function Sidebar({
   onToggle: () => void;
 }) {
   const t = useT();
-  const { scope } = useAssuranceScope();
+  const { scope, app } = useAssuranceScope();
 
-  const navItems = useMemo(
-    () =>
+  // Operations is rebuilt rather than taken from RATING_NAV as-is. Its declared
+  // children (Replay & Recovery, Tolerance Policies, Audit Logs) are all
+  // unbuilt phase-2+ placeholders; they are replaced by the two screens that do
+  // exist — the assurance Controls explorer for the selected app, and the
+  // platform's Data Sources register.
+  const operations: RatingNavItem = useMemo(
+    () => ({
+      to: OPERATIONS_PATH,
+      label: "Operations",
+      icon: Settings2,
+      phase: 1,
+      children: [
+        {
+          to: `/assurance/${app.id}/controls`,
+          label: "Controls",
+          icon: ShieldCheck,
+          phase: 1,
+        },
+        { to: "/data-sources", label: "Data Sources", icon: Database, phase: 1 },
+      ],
+    }),
+    [app.id],
+  );
+
+  const navItems = useMemo(() => {
+    const base =
       scope === RATING_SCOPE_ID
         ? RATING_NAV
-        : RATING_NAV.filter((item) => !RATING_ONLY_PATHS.has(item.to)),
-    [scope],
+        : RATING_NAV.filter((item) => !RATING_ONLY_PATHS.has(item.to));
+    return base.map((item) => (item.to === OPERATIONS_PATH ? operations : item));
+  }, [scope, operations]);
+
+  // RATING_AVAILABLE_PATHS is derived from RATING_NAV, so the two injected
+  // children are absent from it and would render as disabled "soon" rows.
+  const availablePaths = useMemo(
+    () =>
+      new Set([
+        ...RATING_AVAILABLE_PATHS,
+        ...(operations.children ?? []).map((c) => c.to),
+      ]),
+    [operations],
   );
 
   return (
@@ -89,7 +127,7 @@ export function Sidebar({
         {!collapsed && (
           <div className="px-3 pb-2 text-[10px] tracking-widest text-sidebar-foreground/40 font-semibold">{t("MODULES")}</div>
         )}
-        <RatingSidebarNav collapsed={collapsed} items={navItems} />
+        <RatingSidebarNav collapsed={collapsed} items={navItems} availablePaths={availablePaths} />
         <AssuranceSidebarNav collapsed={collapsed} />
       </nav>
 
