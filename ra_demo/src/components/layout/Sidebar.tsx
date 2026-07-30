@@ -1,22 +1,35 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useMemo } from "react";
 import { useT } from "@/lib/i18n";
 import { Tooltip } from "@/components/ui-kit/Tooltip";
 import { RatingSidebarNav } from "@/components/layout/RatingSidebarNav";
 import { AssuranceSidebarNav } from "@/components/layout/AssuranceSidebarNav";
+import { RATING_NAV } from "@/lib/rating/nav";
+import { useAssuranceScope } from "@/lib/assuranceScope";
 
 // ---------------------------------------------------------------------------
-// The sidebar is a single fixed list. It does NOT change when the Assurance
-// Scope changes — the scope only re-targets the two Enterprise Assurance
-// entries, so no module can disappear from the nav by switching scope.
-//
-// Two sources, rendered as one continuous list:
+// One continuous module list, from two sources:
 //   RatingSidebarNav      — Dashboard & KPIs, Reports, Pipelines, Case
 //                           Management, Rule Management (+8 children),
 //                           Metadata Catalogue, Operations, Replay & Recovery,
 //                           System Monitoring.  (src/lib/rating/nav.ts)
 //   AssuranceSidebarNav   — Controls and Administration for the app currently
 //                           selected in the header, plus its entity scope.
+//
+// Almost nothing moves when the Assurance Scope changes: the scope re-targets
+// Controls and Administration, and hides the two rating-specific modules below.
+// Every other module is present under every scope.
 // ---------------------------------------------------------------------------
+
+/**
+ * Modules that only exist for the rating domain. Rule authoring and the
+ * metadata catalogue are backed by ra_rating_backend and have no equivalent
+ * for Usage, Billing, Partner and the rest, so listing them under those scopes
+ * would offer rating screens for an app they say nothing about.
+ */
+const RATING_ONLY_PATHS = new Set(["/rating/rules", "/rating/catalog"]);
+
+const RATING_SCOPE_ID = "rating";
 
 export function Sidebar({
   collapsed,
@@ -26,6 +39,15 @@ export function Sidebar({
   onToggle: () => void;
 }) {
   const t = useT();
+  const { scope } = useAssuranceScope();
+
+  const navItems = useMemo(
+    () =>
+      scope === RATING_SCOPE_ID
+        ? RATING_NAV
+        : RATING_NAV.filter((item) => !RATING_ONLY_PATHS.has(item.to)),
+    [scope],
+  );
 
   return (
     <aside
@@ -67,7 +89,7 @@ export function Sidebar({
         {!collapsed && (
           <div className="px-3 pb-2 text-[10px] tracking-widest text-sidebar-foreground/40 font-semibold">{t("MODULES")}</div>
         )}
-        <RatingSidebarNav collapsed={collapsed} />
+        <RatingSidebarNav collapsed={collapsed} items={navItems} />
         <AssuranceSidebarNav collapsed={collapsed} />
       </nav>
 

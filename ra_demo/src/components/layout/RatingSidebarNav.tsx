@@ -19,6 +19,7 @@ import {
   RATING_AVAILABLE_PATHS,
   EXACT_MATCH_PATHS,
   type RatingNavChild,
+  type RatingNavItem,
 } from "@/lib/rating/nav";
 
 // The Rating Assurance module's navigation. Rendered by the Sidebar in place of
@@ -66,7 +67,19 @@ const REPORT_GROUP_ICON: Record<string, RatingNavChild["icon"]> = {
   Operations: FileText,
 };
 
-export function RatingSidebarNav({ collapsed }: { collapsed: boolean }) {
+export function RatingSidebarNav({
+  collapsed,
+  items = RATING_NAV,
+}: {
+  collapsed: boolean;
+  /**
+   * Which modules to render. Defaults to the full list; the Sidebar narrows it
+   * when the selected Assurance Scope is not Rating, since some modules are
+   * rating-specific. Passing the list in rather than filtering inside keeps the
+   * scope rule in one place.
+   */
+  items?: RatingNavItem[];
+}) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const t = useT();
 
@@ -82,7 +95,7 @@ export function RatingSidebarNav({ collapsed }: { collapsed: boolean }) {
   // One open flag per expandable group; the group containing the current
   // route opens itself so a deep link never lands in a collapsed tree.
   const groupOf = (path: string) =>
-    RATING_NAV.find((item) => item.children?.some((c) => path.startsWith(c.to)))
+    items.find((item) => item.children?.some((c) => path.startsWith(c.to)))
       ?.to;
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const active = groupOf(pathname);
@@ -149,7 +162,7 @@ export function RatingSidebarNav({ collapsed }: { collapsed: boolean }) {
 
   return (
     <>
-      {RATING_NAV.map((item) => {
+      {items.map((item) => {
         const Icon = item.icon;
         const children = item.children;
 
