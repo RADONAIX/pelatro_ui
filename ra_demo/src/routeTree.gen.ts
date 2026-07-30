@@ -43,7 +43,9 @@ import { Route as RatingConnectorsRouteImport } from './routes/rating/connectors
 import { Route as RatingCatalogRouteImport } from './routes/rating/catalog'
 import { Route as RatingBalancesRouteImport } from './routes/rating/balances'
 import { Route as RatingApprovalsRouteImport } from './routes/rating/approvals'
+import { Route as AssuranceAppIdRouteImport } from './routes/assurance.$appId'
 import { Route as RatingRulesIndexRouteImport } from './routes/rating/rules/index'
+import { Route as AssuranceAppIdIndexRouteImport } from './routes/assurance.$appId.index'
 import { Route as RatingRunsRunIdRouteImport } from './routes/rating/runs_.$runId'
 import { Route as RatingRulesOverviewRouteImport } from './routes/rating/rules/overview'
 import { Route as RatingRulesNewRouteImport } from './routes/rating/rules/new'
@@ -51,6 +53,7 @@ import { Route as RatingRulesImportRouteImport } from './routes/rating/rules/imp
 import { Route as RatingRulesRuleIdRouteImport } from './routes/rating/rules/$ruleId'
 import { Route as RatingExceptionsExceptionIdRouteImport } from './routes/rating/exceptions_.$exceptionId'
 import { Route as RatingCdrsResultIdRouteImport } from './routes/rating/cdrs.$resultId'
+import { Route as AssuranceAppIdSectionRouteImport } from './routes/assurance.$appId.$section'
 
 const WorkbenchRoute = WorkbenchRouteImport.update({
   id: '/workbench',
@@ -222,10 +225,20 @@ const RatingApprovalsRoute = RatingApprovalsRouteImport.update({
   path: '/rating/approvals',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AssuranceAppIdRoute = AssuranceAppIdRouteImport.update({
+  id: '/assurance/$appId',
+  path: '/assurance/$appId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RatingRulesIndexRoute = RatingRulesIndexRouteImport.update({
   id: '/rating/rules/',
   path: '/rating/rules/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AssuranceAppIdIndexRoute = AssuranceAppIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AssuranceAppIdRoute,
 } as any)
 const RatingRunsRunIdRoute = RatingRunsRunIdRouteImport.update({
   id: '/rating/runs_/$runId',
@@ -263,6 +276,11 @@ const RatingCdrsResultIdRoute = RatingCdrsResultIdRouteImport.update({
   path: '/rating/cdrs/$resultId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AssuranceAppIdSectionRoute = AssuranceAppIdSectionRouteImport.update({
+  id: '/$section',
+  path: '/$section',
+  getParentRoute: () => AssuranceAppIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -284,6 +302,7 @@ export interface FileRoutesByFullPath {
   '/system-config': typeof SystemConfigRoute
   '/users': typeof UsersRoute
   '/workbench': typeof WorkbenchRoute
+  '/assurance/$appId': typeof AssuranceAppIdRouteWithChildren
   '/rating/approvals': typeof RatingApprovalsRoute
   '/rating/balances': typeof RatingBalancesRoute
   '/rating/catalog': typeof RatingCatalogRoute
@@ -299,6 +318,7 @@ export interface FileRoutesByFullPath {
   '/rating/simulation': typeof RatingSimulationRoute
   '/rating/snapshots': typeof RatingSnapshotsRoute
   '/rating/': typeof RatingIndexRoute
+  '/assurance/$appId/$section': typeof AssuranceAppIdSectionRoute
   '/rating/cdrs/$resultId': typeof RatingCdrsResultIdRoute
   '/rating/exceptions/$exceptionId': typeof RatingExceptionsExceptionIdRoute
   '/rating/rules/$ruleId': typeof RatingRulesRuleIdRoute
@@ -306,6 +326,7 @@ export interface FileRoutesByFullPath {
   '/rating/rules/new': typeof RatingRulesNewRoute
   '/rating/rules/overview': typeof RatingRulesOverviewRoute
   '/rating/runs/$runId': typeof RatingRunsRunIdRoute
+  '/assurance/$appId/': typeof AssuranceAppIdIndexRoute
   '/rating/rules/': typeof RatingRulesIndexRoute
 }
 export interface FileRoutesByTo {
@@ -343,6 +364,7 @@ export interface FileRoutesByTo {
   '/rating/simulation': typeof RatingSimulationRoute
   '/rating/snapshots': typeof RatingSnapshotsRoute
   '/rating': typeof RatingIndexRoute
+  '/assurance/$appId/$section': typeof AssuranceAppIdSectionRoute
   '/rating/cdrs/$resultId': typeof RatingCdrsResultIdRoute
   '/rating/exceptions/$exceptionId': typeof RatingExceptionsExceptionIdRoute
   '/rating/rules/$ruleId': typeof RatingRulesRuleIdRoute
@@ -350,6 +372,7 @@ export interface FileRoutesByTo {
   '/rating/rules/new': typeof RatingRulesNewRoute
   '/rating/rules/overview': typeof RatingRulesOverviewRoute
   '/rating/runs/$runId': typeof RatingRunsRunIdRoute
+  '/assurance/$appId': typeof AssuranceAppIdIndexRoute
   '/rating/rules': typeof RatingRulesIndexRoute
 }
 export interface FileRoutesById {
@@ -373,6 +396,7 @@ export interface FileRoutesById {
   '/system-config': typeof SystemConfigRoute
   '/users': typeof UsersRoute
   '/workbench': typeof WorkbenchRoute
+  '/assurance/$appId': typeof AssuranceAppIdRouteWithChildren
   '/rating/approvals': typeof RatingApprovalsRoute
   '/rating/balances': typeof RatingBalancesRoute
   '/rating/catalog': typeof RatingCatalogRoute
@@ -388,6 +412,7 @@ export interface FileRoutesById {
   '/rating/simulation': typeof RatingSimulationRoute
   '/rating/snapshots': typeof RatingSnapshotsRoute
   '/rating/': typeof RatingIndexRoute
+  '/assurance/$appId/$section': typeof AssuranceAppIdSectionRoute
   '/rating/cdrs/$resultId': typeof RatingCdrsResultIdRoute
   '/rating/exceptions_/$exceptionId': typeof RatingExceptionsExceptionIdRoute
   '/rating/rules/$ruleId': typeof RatingRulesRuleIdRoute
@@ -395,6 +420,7 @@ export interface FileRoutesById {
   '/rating/rules/new': typeof RatingRulesNewRoute
   '/rating/rules/overview': typeof RatingRulesOverviewRoute
   '/rating/runs_/$runId': typeof RatingRunsRunIdRoute
+  '/assurance/$appId/': typeof AssuranceAppIdIndexRoute
   '/rating/rules/': typeof RatingRulesIndexRoute
 }
 export interface FileRouteTypes {
@@ -419,6 +445,7 @@ export interface FileRouteTypes {
     | '/system-config'
     | '/users'
     | '/workbench'
+    | '/assurance/$appId'
     | '/rating/approvals'
     | '/rating/balances'
     | '/rating/catalog'
@@ -434,6 +461,7 @@ export interface FileRouteTypes {
     | '/rating/simulation'
     | '/rating/snapshots'
     | '/rating/'
+    | '/assurance/$appId/$section'
     | '/rating/cdrs/$resultId'
     | '/rating/exceptions/$exceptionId'
     | '/rating/rules/$ruleId'
@@ -441,6 +469,7 @@ export interface FileRouteTypes {
     | '/rating/rules/new'
     | '/rating/rules/overview'
     | '/rating/runs/$runId'
+    | '/assurance/$appId/'
     | '/rating/rules/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -478,6 +507,7 @@ export interface FileRouteTypes {
     | '/rating/simulation'
     | '/rating/snapshots'
     | '/rating'
+    | '/assurance/$appId/$section'
     | '/rating/cdrs/$resultId'
     | '/rating/exceptions/$exceptionId'
     | '/rating/rules/$ruleId'
@@ -485,6 +515,7 @@ export interface FileRouteTypes {
     | '/rating/rules/new'
     | '/rating/rules/overview'
     | '/rating/runs/$runId'
+    | '/assurance/$appId'
     | '/rating/rules'
   id:
     | '__root__'
@@ -507,6 +538,7 @@ export interface FileRouteTypes {
     | '/system-config'
     | '/users'
     | '/workbench'
+    | '/assurance/$appId'
     | '/rating/approvals'
     | '/rating/balances'
     | '/rating/catalog'
@@ -522,6 +554,7 @@ export interface FileRouteTypes {
     | '/rating/simulation'
     | '/rating/snapshots'
     | '/rating/'
+    | '/assurance/$appId/$section'
     | '/rating/cdrs/$resultId'
     | '/rating/exceptions_/$exceptionId'
     | '/rating/rules/$ruleId'
@@ -529,6 +562,7 @@ export interface FileRouteTypes {
     | '/rating/rules/new'
     | '/rating/rules/overview'
     | '/rating/runs_/$runId'
+    | '/assurance/$appId/'
     | '/rating/rules/'
   fileRoutesById: FileRoutesById
 }
@@ -552,6 +586,7 @@ export interface RootRouteChildren {
   SystemConfigRoute: typeof SystemConfigRoute
   UsersRoute: typeof UsersRoute
   WorkbenchRoute: typeof WorkbenchRoute
+  AssuranceAppIdRoute: typeof AssuranceAppIdRouteWithChildren
   RatingApprovalsRoute: typeof RatingApprovalsRoute
   RatingBalancesRoute: typeof RatingBalancesRoute
   RatingCatalogRoute: typeof RatingCatalogRoute
@@ -817,12 +852,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RatingApprovalsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/assurance/$appId': {
+      id: '/assurance/$appId'
+      path: '/assurance/$appId'
+      fullPath: '/assurance/$appId'
+      preLoaderRoute: typeof AssuranceAppIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rating/rules/': {
       id: '/rating/rules/'
       path: '/rating/rules'
       fullPath: '/rating/rules/'
       preLoaderRoute: typeof RatingRulesIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/assurance/$appId/': {
+      id: '/assurance/$appId/'
+      path: '/'
+      fullPath: '/assurance/$appId/'
+      preLoaderRoute: typeof AssuranceAppIdIndexRouteImport
+      parentRoute: typeof AssuranceAppIdRoute
     }
     '/rating/runs_/$runId': {
       id: '/rating/runs_/$runId'
@@ -873,8 +922,29 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RatingCdrsResultIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/assurance/$appId/$section': {
+      id: '/assurance/$appId/$section'
+      path: '/$section'
+      fullPath: '/assurance/$appId/$section'
+      preLoaderRoute: typeof AssuranceAppIdSectionRouteImport
+      parentRoute: typeof AssuranceAppIdRoute
+    }
   }
 }
+
+interface AssuranceAppIdRouteChildren {
+  AssuranceAppIdSectionRoute: typeof AssuranceAppIdSectionRoute
+  AssuranceAppIdIndexRoute: typeof AssuranceAppIdIndexRoute
+}
+
+const AssuranceAppIdRouteChildren: AssuranceAppIdRouteChildren = {
+  AssuranceAppIdSectionRoute: AssuranceAppIdSectionRoute,
+  AssuranceAppIdIndexRoute: AssuranceAppIdIndexRoute,
+}
+
+const AssuranceAppIdRouteWithChildren = AssuranceAppIdRoute._addFileChildren(
+  AssuranceAppIdRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -896,6 +966,7 @@ const rootRouteChildren: RootRouteChildren = {
   SystemConfigRoute: SystemConfigRoute,
   UsersRoute: UsersRoute,
   WorkbenchRoute: WorkbenchRoute,
+  AssuranceAppIdRoute: AssuranceAppIdRouteWithChildren,
   RatingApprovalsRoute: RatingApprovalsRoute,
   RatingBalancesRoute: RatingBalancesRoute,
   RatingCatalogRoute: RatingCatalogRoute,

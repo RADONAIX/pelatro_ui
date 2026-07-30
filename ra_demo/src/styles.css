@@ -35,6 +35,14 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* Categorical chart ramp — consumed by Recharts series in the Enterprise
+     Assurance sections (chart-4 reads as "detected/leakage", chart-1 as the
+     brand/recovered series). */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -77,6 +85,14 @@
   --input: oklch(0.90 0 0);
   --ring: oklch(0.85 0.18 92);
 
+  /* Chart ramp, tuned to the amber theme. The primary amber is deliberately
+     darkened here — 0.85 lightness is unreadable as a 2px stroke on white. */
+  --chart-1: oklch(0.72 0.15 78);
+  --chart-2: oklch(0.58 0.11 235);
+  --chart-3: oklch(0.62 0.13 155);
+  --chart-4: oklch(0.58 0.15 33);
+  --chart-5: oklch(0.55 0.14 295);
+
   /* Sidebar: pure white surface, shared border tone with header */
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.30 0 0);
@@ -112,6 +128,11 @@
   --border: oklch(0.30 0 0);
   --input: oklch(0.30 0 0);
   --ring: oklch(0.85 0.18 92);
+  --chart-1: oklch(0.84 0.16 85);
+  --chart-2: oklch(0.70 0.11 235);
+  --chart-3: oklch(0.74 0.13 155);
+  --chart-4: oklch(0.68 0.16 33);
+  --chart-5: oklch(0.70 0.14 295);
   --sidebar: oklch(0.16 0 0);
   --sidebar-foreground: oklch(0.92 0 0);
   --sidebar-primary: oklch(0.85 0.18 92);
@@ -154,6 +175,25 @@
     height: auto;
     padding: 0.5rem 0.75rem;
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Enterprise Assurance utilities.
+ *
+ * Ported from the ASSURA app alongside src/components/assurance/**. `panel` is
+ * the card surface every assurance Panel/section renders on; `tabular` locks
+ * numeric columns to tabular figures so table rows don't jitter. Both read the
+ * existing tokens, so they follow this app's amber theme and dark mode with no
+ * further wiring.
+ * ------------------------------------------------------------------------- */
+@utility panel {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Sonner toast: move close button to the far right, vertically centered */

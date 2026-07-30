@@ -23,6 +23,7 @@ import {
   Briefcase,
   GitCompareArrows,
   SlidersHorizontal,
+  Layers,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth, type PermKey } from "@/lib/auth";
@@ -31,6 +32,7 @@ import { Tooltip } from "@/components/ui-kit/Tooltip";
 import { GROUPS, REPORTS, DEFAULT_REPORT_KEY } from "@/lib/reportsCatalog";
 import { useAssuranceScope } from "@/lib/assuranceScope";
 import { RatingSidebarNav } from "@/components/layout/RatingSidebarNav";
+import { APPS } from "@/lib/assurance/platform-metadata";
 
 // A distinct icon per report (falls back to a per-group icon, then a default).
 const REPORT_ICON: Record<string, typeof LayoutDashboard> = {
@@ -141,6 +143,13 @@ export function Sidebar({
     if (onMonitoring) setMonitoringOpen(true);
   }, [onMonitoring]);
 
+  const onAssurance = pathname.startsWith("/assurance/");
+  const [assuranceOpen, setAssuranceOpen] = useState(onAssurance);
+  // Auto-expand the assurance app list whenever we're inside one of its apps.
+  useEffect(() => {
+    if (onAssurance) setAssuranceOpen(true);
+  }, [onAssurance]);
+
   const selectedReport = onReports
     ? REPORTS.some((r) => r.key === activeReport && r.available)
       ? activeReport
@@ -190,6 +199,33 @@ export function Sidebar({
             );
           })}
         </div>
+      );
+    });
+
+  // The eight Enterprise Assurance apps — shared by the expanded accordion and
+  // the collapsed hover flyout so both stay in sync. Each app lands on its own
+  // dashboard; the six sections are switched by tabs inside the page, not here.
+  const renderAssuranceApps = () =>
+    APPS.map((a) => {
+      const appActive = pathname.startsWith(`/assurance/${a.id}/`);
+      return (
+        <Link
+          key={a.id}
+          to="/assurance/$appId/$section"
+          params={{ appId: a.id, section: "dashboard" }}
+          className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-[13px] transition-colors ${
+            appActive
+              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+              : "text-sidebar-foreground/75 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+          }`}
+        >
+          <span
+            className={`shrink-0 font-mono text-[9px] tracking-wider ${appActive ? "text-primary" : "text-sidebar-foreground/45"}`}
+          >
+            {a.prefix}
+          </span>
+          <span className="flex-1 truncate">{a.name}</span>
+        </Link>
       );
     });
 
@@ -517,6 +553,82 @@ export function Sidebar({
             </Link>
           );
         })}
+
+        {/* Enterprise Assurance — the ported ASSURA apps, listed below the
+            RADONaix modules. Rendered outside the `isRating` branch above so
+            they stay reachable in every Assurance Scope; wrap this block in
+            `{!isRating && ...}` to hide it while the Rating scope owns the nav. */}
+        <div className="pt-3 mt-3 border-t border-sidebar-border">
+          {!collapsed && (
+            <div className="px-3 pb-2 text-[10px] tracking-widest text-sidebar-foreground/40 font-semibold">
+              {t("ENTERPRISE ASSURANCE")}
+            </div>
+          )}
+
+          {!collapsed ? (
+            <>
+              <button
+                onClick={() => setAssuranceOpen((o) => !o)}
+                aria-expanded={assuranceOpen}
+                className={`group relative w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                  onAssurance
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-primary"
+                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+                }`}
+              >
+                <span className="flex items-center gap-3 min-w-0">
+                  <Layers className={`h-4 w-4 shrink-0 ${onAssurance ? "text-primary" : ""}`} />
+                  <span className="truncate">{t("Assurance Apps")}</span>
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-sidebar-foreground/50 transition-transform ${assuranceOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {assuranceOpen && (
+                <div className="mt-1 mb-1 ml-4 pl-3 border-l border-sidebar-border space-y-0.5">
+                  {renderAssuranceApps()}
+                </div>
+              )}
+            </>
+          ) : (
+            // Collapsed rail: same hover-flyout treatment as Operations/Reports.
+            <div className="group relative">
+              <Link
+                to="/assurance/$appId/$section"
+                params={{ appId: APPS[0].id, section: "dashboard" }}
+                aria-label={t("Assurance Apps")}
+                className={`relative flex items-center justify-center px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                  onAssurance
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground border-l-2 border-primary"
+                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+                }`}
+              >
+                <Layers className={`h-4 w-4 shrink-0 ${onAssurance ? "text-primary" : ""}`} />
+              </Link>
+
+              <div className="invisible -translate-x-1 opacity-0 group-hover:visible group-hover:translate-x-0 group-hover:opacity-100 transition duration-150 ease-out absolute left-full top-0 pl-2.5 z-50">
+                <span className="absolute left-[6px] top-4 z-10 h-2.5 w-2.5 rotate-45 rounded-[2px] border-l border-b border-sidebar-border bg-sidebar" />
+                <div className="relative w-64 rounded-xl border border-sidebar-border bg-sidebar shadow-2xl ring-1 ring-black/5 py-2">
+                  <div className="flex items-center gap-2.5 px-3 pb-2.5 mb-1 border-b border-sidebar-border">
+                    <span className="h-8 w-8 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                      <Layers className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold text-sidebar-foreground leading-tight truncate">
+                        {t("Assurance Apps")}
+                      </div>
+                      <div className="text-[10px] text-sidebar-foreground/50 mt-0.5">
+                        {APPS.length} {t("apps")}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-1.5 space-y-0.5">{renderAssuranceApps()}</div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </nav>
 
       <div className={`px-4 py-4 border-t border-sidebar-border text-[11px] text-sidebar-foreground/50 ${collapsed ? "text-center" : ""}`}>
