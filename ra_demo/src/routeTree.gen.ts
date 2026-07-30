@@ -18,6 +18,7 @@ import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as ReconWorkflowsRouteImport } from './routes/recon-workflows'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PipelinesRouteImport } from './routes/pipelines'
+import { Route as OverviewRouteImport } from './routes/overview'
 import { Route as MonitoringRouteImport } from './routes/monitoring'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
@@ -98,6 +99,11 @@ const ProfileRoute = ProfileRouteImport.update({
 const PipelinesRoute = PipelinesRouteImport.update({
   id: '/pipelines',
   path: '/pipelines',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OverviewRoute = OverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MonitoringRoute = MonitoringRouteImport.update({
@@ -293,6 +299,7 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
+  '/overview': typeof OverviewRoute
   '/pipelines': typeof PipelinesRoute
   '/profile': typeof ProfileRoute
   '/recon-workflows': typeof ReconWorkflowsRoute
@@ -340,6 +347,7 @@ export interface FileRoutesByTo {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
+  '/overview': typeof OverviewRoute
   '/pipelines': typeof PipelinesRoute
   '/profile': typeof ProfileRoute
   '/recon-workflows': typeof ReconWorkflowsRoute
@@ -387,6 +395,7 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/monitoring': typeof MonitoringRoute
+  '/overview': typeof OverviewRoute
   '/pipelines': typeof PipelinesRoute
   '/profile': typeof ProfileRoute
   '/recon-workflows': typeof ReconWorkflowsRoute
@@ -436,6 +445,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/monitoring'
+    | '/overview'
     | '/pipelines'
     | '/profile'
     | '/recon-workflows'
@@ -483,6 +493,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/monitoring'
+    | '/overview'
     | '/pipelines'
     | '/profile'
     | '/recon-workflows'
@@ -529,6 +540,7 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/monitoring'
+    | '/overview'
     | '/pipelines'
     | '/profile'
     | '/recon-workflows'
@@ -577,6 +589,7 @@ export interface RootRouteChildren {
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
   MonitoringRoute: typeof MonitoringRoute
+  OverviewRoute: typeof OverviewRoute
   PipelinesRoute: typeof PipelinesRoute
   ProfileRoute: typeof ProfileRoute
   ReconWorkflowsRoute: typeof ReconWorkflowsRoute
@@ -675,6 +688,13 @@ declare module '@tanstack/react-router' {
       path: '/pipelines'
       fullPath: '/pipelines'
       preLoaderRoute: typeof PipelinesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/overview': {
+      id: '/overview'
+      path: '/overview'
+      fullPath: '/overview'
+      preLoaderRoute: typeof OverviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/monitoring': {
@@ -957,6 +977,7 @@ const rootRouteChildren: RootRouteChildren = {
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
   MonitoringRoute: MonitoringRoute,
+  OverviewRoute: OverviewRoute,
   PipelinesRoute: PipelinesRoute,
   ProfileRoute: ProfileRoute,
   ReconWorkflowsRoute: ReconWorkflowsRoute,

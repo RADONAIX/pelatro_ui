@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Database, Settings2, ShieldCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, LayoutGrid, Settings2, ShieldCheck } from "lucide-react";
 import { useMemo } from "react";
 import { useT } from "@/lib/i18n";
 import { Tooltip } from "@/components/ui-kit/Tooltip";
@@ -33,6 +33,17 @@ const RATING_SCOPE_ID = "rating";
 
 /** The group whose children this file replaces wholesale. */
 const OPERATIONS_PATH = "/rating/admin";
+
+/**
+ * The landing page, above every other module. Where login lands, and where the
+ * assurance scope gets chosen before the rest of the workflow.
+ */
+const OVERVIEW_ITEM: RatingNavItem = {
+  to: "/overview",
+  label: "Overview",
+  icon: LayoutGrid,
+  phase: 1,
+};
 
 export function Sidebar({
   collapsed,
@@ -73,15 +84,19 @@ export function Sidebar({
       scope === RATING_SCOPE_ID
         ? RATING_NAV
         : RATING_NAV.filter((item) => !RATING_ONLY_PATHS.has(item.to));
-    return base.map((item) => (item.to === OPERATIONS_PATH ? operations : item));
+    return [
+      OVERVIEW_ITEM,
+      ...base.map((item) => (item.to === OPERATIONS_PATH ? operations : item)),
+    ];
   }, [scope, operations]);
 
-  // RATING_AVAILABLE_PATHS is derived from RATING_NAV, so the two injected
-  // children are absent from it and would render as disabled "soon" rows.
+  // RATING_AVAILABLE_PATHS is derived from RATING_NAV, so anything injected
+  // here is absent from it and would render as a disabled "soon" row.
   const availablePaths = useMemo(
     () =>
       new Set([
         ...RATING_AVAILABLE_PATHS,
+        OVERVIEW_ITEM.to,
         ...(operations.children ?? []).map((c) => c.to),
       ]),
     [operations],

@@ -85,11 +85,11 @@ function LoginPage() {
         const user = await authService.me(token!);
         setSession(token!, user);
         toast.success(t("Welcome back"));
-        // Replace the /login?token=… entry with the dashboard — this both leaves
-        // the login screen and drops the token from browser history. Do NOT also
-        // call history.replaceState here: it would override this navigation and
-        // keep the user stuck on /login.
-        navigate({ to: "/", replace: true });
+        // Replace the /login?token=… entry with the landing page — this both
+        // leaves the login screen and drops the token from browser history. Do
+        // NOT also call history.replaceState here: it would override this
+        // navigation and keep the user stuck on /login.
+        navigate({ to: "/overview", replace: true });
       } catch (e: any) {
         setSsoLoading(false);
         toast.error(e?.message || t("Login failed"));
@@ -128,7 +128,7 @@ function LoginPage() {
       } else {
         toast.success(t("Welcome back"));
       }
-      navigate({ to: "/" });
+      navigate({ to: "/overview" });
     } catch (err: any) {
       // Surface the backend's message (e.g. "Your account has been disabled.",
       // "Invalid email or password.", lockout) instead of the generic axios
