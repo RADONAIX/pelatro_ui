@@ -1,0 +1,12 @@
+[
+  {
+    "targets": ["10.200.36.69:9363"],
+    "labels": {
+      "service": "clickhouse",
+      "server": "ch-master",
+      "display": "Database · ClickHouse (69)",
+      "role": "db",
+      "tier": "master"
+    }
+  }
+]

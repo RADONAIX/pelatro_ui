@@ -1,0 +1,32 @@
+[
+  {
+    "targets": ["127.0.0.1:9100"],
+    "labels": {
+      "service": "host",
+      "server": "rpt-master",
+      "display": "Report Server 1 · SDP (142)",
+      "role": "report",
+      "tier": "master"
+    }
+  },
+  {
+    "targets": ["10.200.37.133:9100"],
+    "labels": {
+      "service": "host",
+      "server": "app-air",
+      "display": "App 1 · AIR (133)",
+      "role": "app",
+      "feed": "air"
+    }
+  },
+  {
+    "targets": ["10.200.36.69:9100"],
+    "labels": {
+      "service": "host",
+      "server": "ch-master",
+      "display": "Database · Master (69)",
+      "role": "db",
+      "tier": "master"
+    }
+  }
+]

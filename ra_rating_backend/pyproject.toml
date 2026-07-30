@@ -1,0 +1,45 @@
+[project]
+name = "ra-rating-backend"
+version = "0.1.0"
+description = "RADONaix Rating Assurance — tariff rule control plane and rating engine"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.136.3",
+    "uvicorn[standard]==0.48.0",
+    "gunicorn==26.0.0",
+    "pydantic[email]==2.13.4",
+    "pydantic-settings==2.14.1",
+    "sqlalchemy[asyncio]==2.0.50",
+    "asyncpg==0.31.0",
+    "psycopg2-binary==2.9.12",
+    "alembic==1.18.4",
+    "clickhouse-connect==1.1.1",
+    "pyjwt==2.13.0",
+    "httpx==0.28.1",
+    "structlog==25.5.0",
+    "prometheus-client==0.25.0",
+    "python-multipart==0.0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "pytest-asyncio==1.3.0",
+    "aiosqlite==0.21.0",
+    "ruff==0.14.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["B008"]  # FastAPI's Depends()/Query() defaults are the idiom here.
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*" = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

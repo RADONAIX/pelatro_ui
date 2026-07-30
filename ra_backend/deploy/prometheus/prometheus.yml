@@ -1,0 +1,65 @@
+# RADONAIX — Prometheus scrape config (system + app monitoring).
+#
+# TARGETS ARE NOT LISTED HERE. Every scrape job uses file-based service discovery
+# (`file_sd_configs`), so adding/removing a monitored server is a one-line edit to
+# a JSON file under targets/ — Prometheus watches those files and picks up changes
+# within `refresh_interval`. NO reload, NO restart, NO edit to this file.
+#
+# The `files:` paths are ABSOLUTE on purpose: Prometheus resolves relative file_sd
+# paths against its *working directory* (systemd gives it `/`), not against this
+# config file. Install the targets dir alongside this file:
+#     sudo cp -r deploy/prometheus/targets /etc/prometheus/
+#
+#   Add a server:  1) run deploy/monitoring/install_exporters.sh <role> on the box
+#                  2) append an object to the matching targets/*.json
+#   See docs/MONITORING.md §9.
+#
+# Every target carries these labels (used by dashboards, alerts and the UI):
+#   server   - stable id, e.g. app-air / ch-master / rpt-master   (dashboard $server)
+#   display  - human label shown in the UI selector
+#   role     - app | db | report | archive
+#   tier     - master | slave        (omit when not applicable)
+#   feed     - air | sdp | svc | all (app servers only)
+#
+# Prometheus binds to 127.0.0.1:9090 (see deploy/systemd/prometheus.service) and is
+# reached only through Grafana behind nginx — it is not exposed publicly.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: radonaix
+
+scrape_configs:
+  # The RADONAIX API — gunicorn exposes /metrics at root (NOT under /api).
+  # Only the report servers run it.
+  - job_name: radonaix_api
+    metrics_path: /metrics
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/api.json"]
+        refresh_interval: 30s
+
+  # System metrics — CPU, RAM, disk, network, filesystem. EVERY server.
+  - job_name: node
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/nodes.json"]
+        refresh_interval: 30s
+
+  # Postgres — Airflow metadata DBs (app servers), the master/slave pair, and the
+  # application DB on the report servers.
+  - job_name: postgres
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/postgres.json"]
+        refresh_interval: 30s
+
+  # ClickHouse — native Prometheus endpoint (:9363), enabled per docs/MONITORING.md.
+  # Surfaces MemoryTracking vs the server cap, merges, replication delay.
+  - job_name: clickhouse
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/clickhouse.json"]
+        refresh_interval: 30s
+
+  # Prometheus self-monitoring.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]

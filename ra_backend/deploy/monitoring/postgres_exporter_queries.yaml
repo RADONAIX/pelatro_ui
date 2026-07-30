@@ -1,0 +1,25 @@
+# postgres_exporter custom query — instance-wide connection counts by state.
+# The default exporter only exposes per-DB pg_stat_database_numbackends (total);
+# this adds total / active (running a query) / idle for the dashboards.
+# NOTE: `pid <> pg_backend_pid()` excludes the exporter's OWN scrape connection —
+# otherwise "active" is always >=1 (the monitor counting itself), which made it
+# look frozen at 1-2. Now the numbers reflect real client connections only.
+# Loaded via: postgres_exporter --extend.query-path=/etc/monitoring/postgres_exporter_queries.yaml
+radonaix_pg_connections:
+  query: >
+    SELECT count(*) AS total,
+           count(*) FILTER (WHERE state = 'active') AS active,
+           count(*) FILTER (WHERE state = 'idle')   AS idle
+    FROM pg_stat_activity
+    WHERE pid <> pg_backend_pid()
+  master: true
+  metrics:
+    - total:
+        usage: "GAUGE"
+        description: "Total client Postgres connections (excludes the exporter itself)"
+    - active:
+        usage: "GAUGE"
+        description: "Client connections currently running a query (state=active)"
+    - idle:
+        usage: "GAUGE"
+        description: "Idle client connections (state=idle)"

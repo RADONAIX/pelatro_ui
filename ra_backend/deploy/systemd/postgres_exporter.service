@@ -1,0 +1,26 @@
+[Unit]
+Description=Prometheus postgres_exporter (Postgres connections + stats)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=postgres_exporter
+Group=postgres_exporter
+# DB connection string holds credentials, so it lives in an EnvironmentFile that
+# is NOT committed. Create it once on the server (chmod 600), e.g.:
+#   DATA_SOURCE_NAME=postgresql://USER:PASS@10.200.37.142:5432/postgres?sslmode=disable
+# Use a least-privilege monitoring role where possible (GRANT pg_monitor).
+# One exporter sees the WHOLE instance (all databases) via pg_stat_database.
+EnvironmentFile=/etc/monitoring/postgres_exporter.env
+# Bind to localhost only — scraped by the local Prometheus, never exposed publicly.
+ExecStart=/opt/monitoring/postgres_exporter/postgres_exporter \
+    --web.listen-address=127.0.0.1:9187 \
+    --extend.query-path=/etc/monitoring/postgres_exporter_queries.yaml
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

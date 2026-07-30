@@ -1,0 +1,20 @@
+# Per-server overrides for radonaix-api — copy to a real drop-in, then it survives
+# every `git pull` (the base unit is never edited):
+#
+#   sudo mkdir -p /etc/systemd/system/radonaix-api.service.d
+#   sudo cp deploy/systemd/radonaix-api.service.d/override.conf.example \
+#           /etc/systemd/system/radonaix-api.service.d/override.conf
+#   sudo systemctl daemon-reload && sudo systemctl restart radonaix-api
+#
+# A drop-in only adds/overrides the keys it lists; everything else comes from the
+# base unit. Edit this file for server-specific values.
+
+[Service]
+# This host runs the service as root (no dedicated `radonaix` user). The base unit
+# ships User=radonaix for the standard "create a service user" install; override here.
+User=root
+Group=root
+
+# Worker count for THIS host (overrides the base unit's default). Keep small enough
+# that workers x (app DB + ra_pg + bi_pg pools) stays under Postgres max_connections.
+Environment=WEB_CONCURRENCY=2
