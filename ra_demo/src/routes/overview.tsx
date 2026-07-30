@@ -10,11 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
-import {
-  ASSURANCE_APPS,
-  ASSURANCE_WORKSPACE_GROUPS,
-  useAssuranceScope,
-} from "@/lib/assuranceScope";
+import { ASSURANCE_WORKSPACE_GROUPS, useAssuranceScope } from "@/lib/assuranceScope";
 
 // ---------------------------------------------------------------------------
 // The landing page — where a session starts.
@@ -149,9 +145,9 @@ function OrbitalDiagram() {
 /**
  * The point of this page: pick an assurance, which sets the scope and moves on.
  *
- * One flat grid rather than five workspace sections — the workspace is a
- * micro-label on each card instead, which keeps all eight visible at once
- * without the page scrolling.
+ * One card per assurance category, with that category's assurances as small
+ * boxes inside it. The grouping carries the visual weight — the categories are
+ * the map of the platform, the boxes inside are the destinations.
  */
 function AssuranceChooser() {
   const { scope, setScope } = useAssuranceScope();
@@ -174,40 +170,65 @@ function AssuranceChooser() {
         </p>
       </div>
 
-      <div className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-        {ASSURANCE_APPS.map((app) => {
-          const Icon = WORKSPACE_ICON[app.workspace] ?? Handshake;
-          const current = scope === app.id;
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {ASSURANCE_WORKSPACE_GROUPS.map((group) => {
+          const Icon = WORKSPACE_ICON[group.id] ?? Handshake;
+          const holdsScope = group.apps.some((a) => a.id === scope);
           return (
-            <button
-              key={app.id}
-              onClick={() => choose(app.id)}
-              aria-current={current ? "true" : undefined}
-              className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${
-                current
-                  ? "border-primary bg-primary/5"
-                  : "border-border bg-card hover:border-primary/50 hover:bg-muted/40"
+            <div
+              key={group.id}
+              className={`flex flex-col rounded-xl border bg-card p-3 transition ${
+                holdsScope ? "border-primary/40 shadow-sm" : "border-border"
               }`}
             >
-              <span
-                className={`grid size-8 shrink-0 place-items-center rounded-md ${
-                  current ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-foreground">
-                  {app.name.replace(" Assurance", "")}
+              <div className="flex items-center gap-2.5 px-0.5 pb-3">
+                <span
+                  className={`grid size-9 shrink-0 place-items-center rounded-lg ${
+                    holdsScope ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <Icon className="h-4.5 w-4.5" />
                 </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {WORKSPACE_LABEL[app.workspace]}
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold leading-tight text-foreground">
+                    {WORKSPACE_LABEL[group.id]}
+                  </span>
+                  <span className="block text-[11px] leading-tight text-muted-foreground">
+                    Assurance
+                  </span>
                 </span>
-              </span>
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                {app.prefix}
-              </span>
-            </button>
+              </div>
+
+              <div className="flex flex-1 flex-col gap-1.5">
+                {group.apps.map((app) => {
+                  const current = scope === app.id;
+                  return (
+                    <button
+                      key={app.id}
+                      onClick={() => choose(app.id)}
+                      aria-current={current ? "true" : undefined}
+                      title={app.summary}
+                      className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition ${
+                        current
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-transparent bg-muted/50 text-muted-foreground hover:border-primary/40 hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <span className="min-w-0 truncate text-[13px] font-medium">
+                        {app.name.replace(" Assurance", "")}
+                      </span>
+                      <span
+                        className={`shrink-0 font-mono text-[10px] ${
+                          current ? "text-primary" : "text-muted-foreground/70"
+                        }`}
+                      >
+                        {app.prefix}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
       </div>
