@@ -5,7 +5,7 @@ import { useAuth, ROLE_LABELS } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { Tooltip } from "@/components/ui-kit/Tooltip";
 import { DownloadCenter } from "@/components/layout/DownloadCenter";
-import { ASSURANCE_SCOPES, useAssuranceScope } from "@/lib/assuranceScope";
+import { ASSURANCE_WORKSPACE_GROUPS, useAssuranceScope } from "@/lib/assuranceScope";
 
 export function Header({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   const { user, signOut, canAccess } = useAuth();
@@ -13,7 +13,7 @@ export function Header({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   const navigate = useNavigate();
   // The scope lives in a context now so the Sidebar can react to it. Storage
   // key, default and behaviour are unchanged (see @/lib/assuranceScope).
-  const { scope, setScope } = useAssuranceScope();
+  const { scope, setScope, app: scopeApp } = useAssuranceScope();
   const [dark, setDark] = useState<boolean>(() =>
     typeof window !== "undefined" ? localStorage.getItem("radonaix_theme") === "dark" : false,
   );
@@ -69,19 +69,35 @@ export function Header({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
             <Layers className="h-4 w-4 text-primary" />
             <div className="text-left leading-tight">
               <div className="text-[10px] tracking-widest text-primary/80 font-semibold">{t("ASSURANCE SCOPE")}</div>
-              <div className="text-sm font-semibold text-foreground">{scope}</div>
+              <div className="text-sm font-semibold text-foreground">{scopeApp.name}</div>
             </div>
             <ChevronDown className="h-4 w-4 text-primary ml-1" />
           </button>
           {scopeOpen && (
-            <div className="absolute right-0 mt-2 w-72 rounded-xl border border-border bg-popover shadow-lg py-2 z-40">
+            // Grouped by workspace (Commercial / Customer / Revenue / Operations
+            // / Financial) — the hierarchy platform-metadata already declares,
+            // rather than a flat list that hides which domain an app belongs to.
+            <div className="absolute right-0 mt-2 w-80 max-h-[70vh] overflow-y-auto rounded-xl border border-border bg-popover shadow-lg py-2 z-40">
               <div className="px-4 py-2 text-[10px] tracking-widest text-muted-foreground font-semibold">{t("ASSURANCE SCOPE")}</div>
-              {ASSURANCE_SCOPES.map((s) => (
-                <button key={s} onClick={() => { setScope(s); setScopeOpen(false); }}
-                  className={`w-full flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-muted ${scope === s ? "text-primary font-semibold" : "text-foreground"}`}>
-                  <span className="flex items-center gap-3"><Layers className={`h-4 w-4 ${scope === s ? "text-primary" : "text-muted-foreground"}`} />{s}</span>
-                  {scope === s && <Check className="h-4 w-4 text-primary" />}
-                </button>
+              {ASSURANCE_WORKSPACE_GROUPS.map((group) => (
+                <div key={group.id}>
+                  <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-widest text-muted-foreground/70 font-semibold">
+                    {group.name}
+                  </div>
+                  {group.apps.map((a) => (
+                    <button key={a.id} onClick={() => { setScope(a.id); setScopeOpen(false); }}
+                      className={`w-full flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-muted ${scope === a.id ? "text-primary font-semibold" : "text-foreground"}`}>
+                      <span className="flex items-center gap-3 min-w-0">
+                        <Layers className={`h-4 w-4 shrink-0 ${scope === a.id ? "text-primary" : "text-muted-foreground"}`} />
+                        <span className="truncate">{a.name}</span>
+                      </span>
+                      <span className="flex items-center gap-2 shrink-0">
+                        <span className={`font-mono text-[10px] ${scope === a.id ? "text-primary/70" : "text-muted-foreground/60"}`}>{a.prefix}</span>
+                        {scope === a.id && <Check className="h-4 w-4 text-primary" />}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           )}

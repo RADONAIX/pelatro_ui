@@ -1,5 +1,6 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { NAV_SECTIONS, getApp } from "@/lib/assurance/platform-metadata";
+import { NAV_SECTIONS, getApp, type AppMetadata } from "@/lib/assurance/platform-metadata";
+import { SectionTabs } from "@/components/assurance/SectionTabs";
 import { DashboardSection } from "@/components/assurance/sections/DashboardSection";
 import { ControlsSection } from "@/components/assurance/sections/ControlsSection";
 import { ExceptionsSection } from "@/components/assurance/sections/ExceptionsSection";
@@ -35,6 +36,15 @@ function SectionPage() {
   const { appId, section } = Route.useParams();
   const app = getApp(appId)!;
 
+  return (
+    <>
+      <SectionTabs app={app} section={section} />
+      {renderSection(app, section)}
+    </>
+  );
+}
+
+function renderSection(app: AppMetadata, section: string) {
   switch (section) {
     case "controls":
       return <ControlsSection app={app} />;
