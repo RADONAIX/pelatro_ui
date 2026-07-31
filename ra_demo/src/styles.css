@@ -196,6 +196,58 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------------------------------------------------------------------------
+ * Executive dashboard palette (.ra-viz).
+ *
+ * The validated categorical set, scoped to the dashboard so it does not disturb
+ * the amber --chart-* tokens the rest of the app uses. Slot order is the CVD
+ * safety mechanism, not decoration: it was validated as a set (adjacent-pair
+ * ΔE >= 8 under protan/deutan/tritan, normal-vision >= 15) — re-order or
+ * substitute a hue and it has to be re-validated.
+ *
+ * The dark column is stepped for the dark surface, not an automatic flip.
+ * ------------------------------------------------------------------------- */
+.ra-viz {
+  --viz-surface: var(--card);
+  --viz-grid: color-mix(in oklab, var(--foreground) 9%, transparent);
+  --viz-axis: var(--muted-foreground);
+  --viz-muted: color-mix(in oklab, var(--foreground) 35%, transparent);
+
+  --viz-healthy: #1baf7a;
+  --viz-exceptions: #eb6834;
+  --viz-leakage: #4a3aa7;
+  --viz-risk: #2a78d6;
+
+  --viz-good: #0f8a5f;
+  --viz-bad: #d1462f;
+
+  --viz-c1: #2a78d6;
+  --viz-c2: #eb6834;
+  --viz-c3: #1baf7a;
+  --viz-c4: #eda100;
+  --viz-c5: #e87ba4;
+  --viz-c6: #4a3aa7;
+}
+
+.dark .ra-viz {
+  --viz-grid: color-mix(in oklab, var(--foreground) 14%, transparent);
+
+  --viz-healthy: #199e70;
+  --viz-exceptions: #d95926;
+  --viz-leakage: #9085e9;
+  --viz-risk: #3987e5;
+
+  --viz-good: #2fae7e;
+  --viz-bad: #e66767;
+
+  --viz-c1: #3987e5;
+  --viz-c2: #d95926;
+  --viz-c3: #199e70;
+  --viz-c4: #c98500;
+  --viz-c5: #d55181;
+  --viz-c6: #9085e9;
+}
+
 /* Sonner toast: move close button to the far right, vertically centered */
 [data-sonner-toast] {
   position: relative;

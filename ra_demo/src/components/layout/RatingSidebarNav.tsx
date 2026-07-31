@@ -3,6 +3,8 @@ import {
   ChevronDown,
   FileBarChart2,
   FileText,
+  Files,
+  GitCompareArrows,
   Landmark,
   ListChecks,
   Scale,
@@ -14,6 +16,7 @@ import {
   RATING_REPORT_GROUPS,
   DEFAULT_RATING_REPORT_KEY,
 } from "@/lib/rating/reportsCatalog";
+import type { ReportCatalog } from "@/lib/reportCatalogs";
 import {
   RATING_NAV,
   RATING_AVAILABLE_PATHS,
@@ -59,18 +62,31 @@ function SoonRow({
 }
 
 // A distinct icon per report group, mirroring how the mediation sidebar
-// renders its own catalog.
+// renders its own catalog. Covers both catalogs' groups — the rating suite
+// (Reconciliation / Detail / Financial / Operations) and the platform suite
+// (Files / Reconciliation / Correlation / Operations).
 const REPORT_GROUP_ICON: Record<string, RatingNavChild["icon"]> = {
   Reconciliation: Scale,
   Detail: ListChecks,
   Financial: Landmark,
   Operations: FileText,
+  Files: Files,
+  Correlation: GitCompareArrows,
+};
+
+/** The rating suite, unless the Sidebar passes another scope's catalog. */
+const DEFAULT_REPORT_CATALOG: ReportCatalog = {
+  path: "/rating/reports",
+  entries: RATING_REPORTS,
+  groups: RATING_REPORT_GROUPS,
+  defaultKey: DEFAULT_RATING_REPORT_KEY,
 };
 
 export function RatingSidebarNav({
   collapsed,
   items = RATING_NAV,
   availablePaths = RATING_AVAILABLE_PATHS,
+  reports = DEFAULT_REPORT_CATALOG,
 }: {
   collapsed: boolean;
   /**
@@ -87,6 +103,13 @@ export function RatingSidebarNav({
    * and Data Sources under Operations — which would otherwise be disabled.
    */
   availablePaths?: ReadonlySet<string>;
+  /**
+   * Which report suite the "Reports & Certified Exports" accordion lists. The
+   * rating suite only means something under the Rating scope; every other scope
+   * gets the platform suite. Both pages take the same `?report=` key, so only
+   * the catalog changes — the accordion itself is identical.
+   */
+  reports?: ReportCatalog;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const t = useT();
@@ -112,17 +135,17 @@ export function RatingSidebarNav({
   const search = useRouterState({ select: (st) => st.location.search }) as {
     report?: string;
   };
-  const onReports = pathname.startsWith("/rating/reports");
+  const onReports = pathname.startsWith(reports.path);
   const selectedReport = onReports
-    ? RATING_REPORTS.some((r) => r.key === search.report && r.available)
+    ? reports.entries.some((r) => r.key === search.report && r.available)
       ? search.report
-      : DEFAULT_RATING_REPORT_KEY
+      : reports.defaultKey
     : null;
 
   // The grouped report catalog, rendered under "Reports & Certified Exports".
   const renderReportGroups = () =>
-    RATING_REPORT_GROUPS.map((g) => {
-      const groupReports = RATING_REPORTS.filter((r) => r.group === g);
+    reports.groups.map((g) => {
+      const groupReports = reports.entries.filter((r) => r.group === g);
       if (groupReports.length === 0) return null;
       return (
         <div key={g}>
@@ -140,7 +163,7 @@ export function RatingSidebarNav({
             return (
               <Link
                 key={r.key}
-                to="/rating/reports"
+                to={reports.path}
                 search={{ report: r.key }}
                 className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-[13px] transition-colors ${
                   childActive
@@ -176,16 +199,13 @@ export function RatingSidebarNav({
 
         // Reports is a catalog accordion, not a child list — same treatment
         // the mediation sidebar gives its own report catalog.
-        if (
-          item.to === "/rating/reports" &&
-          availablePaths.has(item.to)
-        ) {
+        if (item.to === reports.path && availablePaths.has(item.to)) {
           const open = openGroups[item.to] ?? onReports;
           if (collapsed) {
             return (
               <div key={item.to} className="group relative">
                 <Link
-                  to="/rating/reports"
+                  to={reports.path}
                   aria-label={t(item.label)}
                   className={`relative flex items-center justify-center px-3 py-2.5 rounded-lg text-sm transition-colors ${
                     onReports

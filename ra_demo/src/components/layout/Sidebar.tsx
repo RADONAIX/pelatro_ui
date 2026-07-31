@@ -15,6 +15,7 @@ import { RatingSidebarNav } from "@/components/layout/RatingSidebarNav";
 import { AssuranceSidebarNav } from "@/components/layout/AssuranceSidebarNav";
 import { RATING_NAV, RATING_AVAILABLE_PATHS, type RatingNavItem } from "@/lib/rating/nav";
 import { useAssuranceScope } from "@/lib/assuranceScope";
+import { catalogForScope } from "@/lib/reportCatalogs";
 
 // ---------------------------------------------------------------------------
 // One continuous module list, from two sources:
@@ -42,6 +43,9 @@ const RATING_SCOPE_ID = "rating";
 
 /** The group whose children this file replaces wholesale. */
 const OPERATIONS_PATH = "/rating/admin";
+
+/** The reports entry RATING_NAV declares; re-targeted per scope below. */
+const RATING_REPORTS_PATH = "/rating/reports";
 
 /**
  * The landing page, above every other module. Where login lands, and where the
@@ -104,6 +108,26 @@ export function Sidebar({
     [app.id],
   );
 
+  // The executive dashboard for the selected app. Scope-targeted like Controls,
+  // so it is injected here rather than declared in RATING_NAV — and it sits
+  // directly under Overview, where choosing an assurance lands.
+  const assuranceDashboard: RatingNavItem = useMemo(
+    () => ({
+      to: `/assurance/${app.id}/dashboard`,
+      label: "Assurance Dashboard",
+      icon: LayoutDashboard,
+      phase: 1,
+    }),
+    [app.id],
+  );
+
+  // Reports are two different suites. The rating catalog (Daily Reconciliation
+  // Summary, Product Leakage, Undercharge/Overcharge, Tax Reconciliation) is
+  // rating-service specific and says nothing about Usage, Billing or Partner;
+  // those scopes get the platform catalog (/reports) instead. The nav entry
+  // keeps its label and position either way — only its target moves.
+  const reports = catalogForScope(scope);
+
   const navItems = useMemo(() => {
     const base =
       scope === RATING_SCOPE_ID
@@ -111,10 +135,17 @@ export function Sidebar({
         : RATING_NAV.filter((item) => !RATING_ONLY_PATHS.has(item.to));
     return [
       OVERVIEW_ITEM,
+      // Cross-assurance first, then the selected assurance's own dashboard —
+      // widest scope to narrowest, matching how the rest of the list narrows.
       ENTERPRISE_DASHBOARD_ITEM,
-      ...base.map((item) => (item.to === OPERATIONS_PATH ? operations : item)),
+      assuranceDashboard,
+      ...base.map((item) => {
+        if (item.to === OPERATIONS_PATH) return operations;
+        if (item.to === RATING_REPORTS_PATH) return { ...item, to: reports.path };
+        return item;
+      }),
     ];
-  }, [scope, operations]);
+  }, [scope, operations, assuranceDashboard, reports.path]);
 
   // RATING_AVAILABLE_PATHS is derived from RATING_NAV, so anything injected
   // here is absent from it and would render as a disabled "soon" row.
@@ -124,9 +155,11 @@ export function Sidebar({
         ...RATING_AVAILABLE_PATHS,
         OVERVIEW_ITEM.to,
         ENTERPRISE_DASHBOARD_ITEM.to,
+        assuranceDashboard.to,
+        reports.path,
         ...(operations.children ?? []).map((c) => c.to),
       ]),
-    [operations],
+    [operations, assuranceDashboard, reports.path],
   );
 
   return (
@@ -169,7 +202,7 @@ export function Sidebar({
         {!collapsed && (
           <div className="px-3 pb-2 text-[10px] tracking-widest text-sidebar-foreground/40 font-semibold">{t("MODULES")}</div>
         )}
-        <RatingSidebarNav collapsed={collapsed} items={navItems} availablePaths={availablePaths} />
+        <RatingSidebarNav collapsed={collapsed} items={navItems} availablePaths={availablePaths} reports={reports} />
         <AssuranceSidebarNav collapsed={collapsed} />
       </nav>
 

@@ -36,9 +36,11 @@ function SectionPage() {
   const { appId, section } = Route.useParams();
   const app = getApp(appId)!;
 
+  // The dashboard carries its own executive header (title, subtitle, filters),
+  // so the generic section header would be a second copy of the same thing.
   return (
     <>
-      <SectionTabs app={app} section={section} />
+      {section !== "dashboard" && <SectionTabs app={app} section={section} />}
       {renderSection(app, section)}
     </>
   );

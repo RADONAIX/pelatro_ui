@@ -155,8 +155,13 @@ function AssuranceChooser() {
 
   const choose = (appId: string) => {
     setScope(appId);
-    // Continue into the platform on the first module in the sidebar.
-    navigate({ to: "/rating" });
+    // Land on the chosen assurance's executive dashboard — the "how much
+    // revenue is at risk" read-out is what picking an assurance is asking for,
+    // and it is the entry point to every other module for that scope.
+    navigate({
+      to: "/assurance/$appId/$section",
+      params: { appId, section: "dashboard" },
+    });
   };
 
   return (

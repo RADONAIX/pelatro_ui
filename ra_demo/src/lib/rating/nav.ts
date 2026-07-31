@@ -62,8 +62,13 @@ export const RATING_NAV: RatingNavItem[] = [
     icon: FileBarChart2,
     phase: 1,
   },
+  // The batch job monitor (/pipelines), not the rating-run screen
+  // (/rating/pipeline). This is the platform-wide AIR/SDP monitor — batch
+  // status, the four stage cards, file quality and the export dialog — and it
+  // is meaningful under every assurance scope, which the rating-run screen is
+  // not. /rating/pipeline is unchanged and still resolves by URL.
   {
-    to: "/rating/pipeline",
+    to: "/pipelines",
     label: "Pipelines & Job Monitor",
     icon: Activity,
     phase: 1,

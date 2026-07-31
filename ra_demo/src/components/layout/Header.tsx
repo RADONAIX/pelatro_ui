@@ -85,7 +85,11 @@ export function Header({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                     {group.name}
                   </div>
                   {group.apps.map((a) => (
-                    <button key={a.id} onClick={() => { setScope(a.id); setScopeOpen(false); }}
+                    // Selecting an assurance opens its executive dashboard —
+                    // re-targeting the sidebar silently would leave the user on
+                    // whatever page they happened to be on, showing another
+                    // app's data.
+                    <button key={a.id} onClick={() => { setScope(a.id); setScopeOpen(false); navigate({ to: "/assurance/$appId/$section", params: { appId: a.id, section: "dashboard" } }); }}
                       className={`w-full flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-muted ${scope === a.id ? "text-primary font-semibold" : "text-foreground"}`}>
                       <span className="flex items-center gap-3 min-w-0">
                         <Layers className={`h-4 w-4 shrink-0 ${scope === a.id ? "text-primary" : "text-muted-foreground"}`} />
