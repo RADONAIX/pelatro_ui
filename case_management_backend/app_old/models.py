@@ -144,12 +144,6 @@ class Case(Base):
     # filter predicate and the sort key simple).
     owner: Mapped[str] = mapped_column(String(120), index=True, default="")
 
-    # The subscriber the case is about. Only Billing Assurance sets this: it is
-    # the join key into the canonical_rating tables, and no other assurance
-    # reads them. Left NULL everywhere else rather than half-populated, so
-    # "has a subscriber" and "is investigable" are the same question.
-    msisdn: Mapped[str | None] = mapped_column(String(24), index=True, nullable=True)
-
     # --- Where in the estate ------------------------------------------------
     stream: Mapped[str] = mapped_column(String(32), default="")
     node_id: Mapped[str] = mapped_column(String(48), default="")

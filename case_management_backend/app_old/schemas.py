@@ -137,11 +137,6 @@ class CaseBase(ApiModel):
     action: str = "NA"
     owner: str = ""
 
-    # Subscriber under investigation. Only meaningful for Billing Assurance —
-    # the service drops it for every other assurance rather than storing a
-    # subscriber nothing will ever look up.
-    msisdn: str | None = None
-
     stream: str = ""
     node_id: str = ""
     source_feed: str = ""
@@ -241,10 +236,6 @@ class CaseRow(ApiModel):
     status: str
     action: str
     owner: str
-
-    # Null on every assurance but Billing — the UI reads it to decide whether a
-    # postpaid investigation is available at all.
-    msisdn: str | None = None
 
     stream: str
     node_id: str

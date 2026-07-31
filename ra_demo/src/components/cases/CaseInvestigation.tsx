@@ -12,7 +12,10 @@ import {
   relative, ruleLabel, uploadAttachments, validateUploadFile,
   type AssuranceCase, type CaseAttachment,
 } from "@/lib/cases";
-import { ANALYSIS_STEPS, isManualInvestigation } from "@/lib/billInvestigation";
+import { ANALYSIS_STEPS } from "@/lib/billInvestigation";
+import {
+  fetchInvestigation, supportsInvestigation, type Investigation,
+} from "@/lib/investigation";
 import { AnalysisProgress, BillInvestigationPanel, RatingAnalysis } from "@/components/cases/BillInvestigationPanel";
 
 // Collapsible section. Four hand-rolled copies of this pattern exist across the
@@ -61,9 +64,12 @@ export function CaseInvestigation({
   const [posting, setPosting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [busyAttachment, setBusyAttachment] = useState<string | null>(null);
-  // Mock bill analysis: idle → running (stepping through ANALYSIS_STEPS) → done.
+  // Bill analysis: idle → running (the five investigation reads are in flight)
+  // → done. The stepped progress is UI pacing; the result is whatever the
+  // source tables return.
   const [analysis, setAnalysis] = useState<"idle" | "running" | "done">("idle");
   const [analysisStep, setAnalysisStep] = useState(0);
+  const [investigation, setInvestigation] = useState<Investigation | null>(null);
   // Rating drill-down: a slide-over anchored to the dialog body, so the flow
   // row itself stays high level.
   const [ratingOpen, setRatingOpen] = useState(false);
@@ -81,6 +87,7 @@ export function CaseInvestigation({
   useEffect(() => {
     setAnalysis("idle");
     setAnalysisStep(0);
+    setInvestigation(null);
     setAssistantOpen(false);
     setRatingOpen(false);
   }, [c.id]);
@@ -141,10 +148,11 @@ export function CaseInvestigation({
   const comments = c.comments ?? [];
   const activities = c.activities ?? [];
   const attachments = c.attachments ?? [];
-  // Bill analysis is offered on a case an analyst raised from a customer
-  // document — not on one a control raised, where the evidence is the mismatch
-  // rows rather than a PDF.
-  const billCase = isManualInvestigation(c);
+  // The postpaid investigation reads the rating and billing source tables,
+  // which only Billing Assurance is linked to. Every other assurance answers
+  // from the mismatch rows its own control emitted, so the analysis is not
+  // offered there at all — and the endpoints would refuse it anyway.
+  const billCase = supportsInvestigation(c);
   const billPdf: CaseAttachment | undefined =
     billCase ? attachments.find((a) => a.contentType === "application/pdf") : undefined;
 
@@ -169,24 +177,42 @@ export function CaseInvestigation({
     }
   };
 
-  // Walks the mock stages on a timer. The steps are cosmetic — the result is
-  // fixed data — but they make the multi-stage nature of the check legible.
-  const analyzeBill = () => {
+  // Runs the investigation: five reads against the rating and billing source
+  // tables. The stepped progress paces the reveal — it never outlasts the
+  // request, and the result is whatever the source tables returned.
+  const analyzeBill = async () => {
     if (analysis === "running") return;
     setAnalysis("running");
     setAnalysisStep(0);
     setRatingOpen(false);
+    setInvestigation(null);
+
     let step = 0;
     const timer = window.setInterval(() => {
-      step += 1;
-      if (step >= ANALYSIS_STEPS.length) {
-        window.clearInterval(timer);
-        setAnalysis("done");
-        toast.success("Bill analysis complete", { description: "Overcharge confirmed — root cause: Rating" });
-        return;
-      }
+      // Hold on the last step until the data lands, rather than completing the
+      // animation and then sitting on an empty panel.
+      step = Math.min(step + 1, ANALYSIS_STEPS.length - 1);
       setAnalysisStep(step);
-    }, 750);
+    }, 400);
+
+    try {
+      const result = await fetchInvestigation(c.id);
+      setInvestigation(result);
+      setAnalysis("done");
+      const variance = result.rating.actual?.variance;
+      toast.success("Bill analysis complete", {
+        description: result.rating.result === "FAIL"
+          ? `${result.rating.finding || "Rating variance found"}${
+              variance != null ? ` — ${result.rating.currency ?? ""} ${variance.toFixed(2)}`.trimEnd() : ""
+            }`
+          : "No rating variance found for this subscriber",
+      });
+    } catch (e) {
+      setAnalysis("idle");
+      toast.error("Bill analysis failed", { description: (e as Error).message });
+    } finally {
+      window.clearInterval(timer);
+    }
   };
 
   const removeAttachment = async (id: string, filename: string) => {
@@ -417,8 +443,11 @@ export function CaseInvestigation({
               </Section>
 
               {billCase && analysis === "running" && <AnalysisProgress step={analysisStep} />}
-              {billCase && analysis === "done" && (
-                <BillInvestigationPanel onOpenRatingAnalysis={() => setRatingOpen(true)} />
+              {billCase && analysis === "done" && investigation && (
+                <BillInvestigationPanel
+                  data={investigation}
+                  onOpenRatingAnalysis={() => setRatingOpen(true)}
+                />
               )}
 
               <Section
@@ -596,7 +625,12 @@ export function CaseInvestigation({
                   : "pointer-events-none opacity-0 translate-y-3 scale-95"
               }`}
             >
-              <AssistantPanel activeCase={c} onPin={pinInsight} onClose={() => setAssistantOpen(false)} />
+              <AssistantPanel
+                activeCase={c}
+                onPin={pinInsight}
+                onClose={() => setAssistantOpen(false)}
+                investigation={investigation}
+              />
             </div>
 
             <button
@@ -618,7 +652,7 @@ export function CaseInvestigation({
               header and footer visible. Above the assistant layer, so opening it
               covers the launcher. Mounted only while a result exists, but kept
               mounted across open/close so the slide animation plays both ways. */}
-          {billCase && analysis === "done" && (
+          {billCase && analysis === "done" && investigation?.rating.available && (
             <div className={`absolute inset-0 z-40 ${ratingOpen ? "" : "pointer-events-none"}`}>
               <button
                 aria-hidden="true"
@@ -635,7 +669,11 @@ export function CaseInvestigation({
                   ratingOpen ? "translate-x-0" : "translate-x-full"
                 }`}
               >
-                <RatingAnalysis onClose={() => setRatingOpen(false)} />
+                <RatingAnalysis
+                  rating={investigation.rating}
+                  invoiceCurrency={investigation.subscriber.invoice?.currency}
+                  onClose={() => setRatingOpen(false)}
+                />
               </div>
             </div>
           )}

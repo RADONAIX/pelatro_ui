@@ -2,11 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { Bot, Paperclip, Pin, Send, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { fmtMoney, mismatchLabel, ruleLabel, type AssuranceCase } from "@/lib/cases";
-import { BILL_SUGGESTIONS, billAnswer, isManualInvestigation } from "@/lib/billInvestigation";
+import {
+  INVESTIGATION_SUGGESTIONS, investigationAnswer, type Investigation,
+} from "@/lib/investigation";
 
-// DEMO-ONLY. There is no LLM anywhere in this project — no dependency, no
-// /chat endpoint — so every reply here is scripted and keyword-matched against
-// the open case. Wiring this to a real model means a new backend integration.
+// There is no LLM anywhere in this project — no dependency, no /chat endpoint —
+// so every reply here is composed and keyword-matched against the open case.
+// Wiring this to a real model means a new backend integration.
+//
+// The figures are not invented: for a case whose investigation has been run,
+// the answers are built from that payload, which is the same data the panels
+// render. The assistant can therefore never quote a number the screen disagrees
+// with.
 
 interface Message {
   id: string;
@@ -58,15 +65,16 @@ const RULE_SUGGESTIONS = [
   "What's the revenue impact?",
 ];
 
-export const suggestionsFor = (c: AssuranceCase) =>
-  isManualInvestigation(c) ? BILL_SUGGESTIONS : RULE_SUGGESTIONS;
+export const suggestionsFor = (_c: AssuranceCase, investigation?: Investigation | null) =>
+  investigation ? INVESTIGATION_SUGGESTIONS : RULE_SUGGESTIONS;
 
-// Canned answers, written for revenue assurance. First matching rule wins, so the
-// more specific intents are checked before the general ones.
-function reply(question: string, c: AssuranceCase): string {
-  // A bill investigation has its own scripted answers — the rule-oriented ones
-  // below talk about controls and batches, which do not apply.
-  if (isManualInvestigation(c)) return billAnswer(question);
+// Composed answers, written for revenue assurance. First matching rule wins, so
+// the more specific intents are checked before the general ones.
+function reply(question: string, c: AssuranceCase, investigation?: Investigation | null): string {
+  // Once the investigation has run, answer from it: the rule-oriented replies
+  // below talk about controls and batches, which say nothing about a rated
+  // event and an invoice.
+  if (investigation) return investigationAnswer(question, investigation);
 
   const q = question.toLowerCase();
   const rows = c.mismatches ?? [];
@@ -132,12 +140,16 @@ export function AssistantPanel({
   activeCase,
   onPin,
   onClose,
+  investigation,
 }: Readonly<{
   activeCase: AssuranceCase;
   onPin: (body: string) => void;
   /** Supplied when the panel is a slide-over: renders its own dismiss control
    *  and drops the card chrome, since the slide-over already provides it. */
   onClose?: () => void;
+  /** Present once Analyze Bill has run. Every billing answer is composed from
+   *  it, so the assistant quotes the figures on screen rather than its own. */
+  investigation?: Investigation | null;
 }>) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -163,7 +175,7 @@ export function AssistantPanel({
     setThinking(true);
     // Small delay so the exchange reads as a live interaction.
     window.setTimeout(() => {
-      setMessages((m) => [...m, { id: `a-${m.length}`, role: "assistant", body: reply(q, activeCase) }]);
+      setMessages((m) => [...m, { id: `a-${m.length}`, role: "assistant", body: reply(q, activeCase, investigation) }]);
       setThinking(false);
     }, 700);
   };
@@ -203,7 +215,7 @@ export function AssistantPanel({
               Ask about {activeCase.reference}, or start with a suggested question:
             </p>
             <div className="flex flex-wrap justify-center gap-1.5 max-w-[260px]">
-              {suggestionsFor(activeCase).map((s) => (
+              {suggestionsFor(activeCase, investigation).map((s) => (
                 <button
                   key={s}
                   onClick={() => ask(s)}
@@ -270,12 +282,12 @@ export function AssistantPanel({
           </button>
         </div>
         <button
-          onClick={() => ask(isManualInvestigation(activeCase) ? "Why was the customer overcharged?" : "Analyze linked records")}
+          onClick={() => ask(investigation ? "Why was the customer overcharged?" : "Analyze linked records")}
           disabled={thinking}
           className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-primary/40 bg-primary/5 py-2 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
         >
           <Sparkles className="h-3.5 w-3.5" />
-          {isManualInvestigation(activeCase) ? "Explain the overcharge" : "Analyze linked records"}
+          {investigation ? "Explain the overcharge" : "Analyze linked records"}
         </button>
       </div>
     </div>

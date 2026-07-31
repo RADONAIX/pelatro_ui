@@ -196,6 +196,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Card surface used by the Enterprise Dashboard panels/KPI tiles. Same tokens
+ * as `panel`, plus the soft elevation the dashboard cards are designed with. */
+@utility card-surface {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px 0 rgb(16 24 40 / 0.05),
+    0 1px 3px 0 rgb(16 24 40 / 0.06);
+}
+
 /* ---------------------------------------------------------------------------
  * Executive dashboard palette (.ra-viz).
  *

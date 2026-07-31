@@ -27,6 +27,7 @@ import {
   type ControlRule,
 } from "@/lib/cases";
 import { MANUAL_INVESTIGATION } from "../lib/billInvestigation";
+import { BILLING_ASSURANCE_CODE } from "@/lib/investigation";
 
 export const Route = createFileRoute("/cases")({ component: CasesPage });
 
@@ -147,6 +148,8 @@ interface CaseForm {
   severity: string;
   status: string;
   owner: string;
+  /** Billing Assurance only — the link into the rating and billing tables. */
+  msisdn: string;
   expectedValue: string;
   actualValue: string;
   variance: string;
@@ -159,7 +162,7 @@ const EMPTY_FORM: CaseForm = {
   // issue type follows from that rather than being picked.
   title: "", description: "", assurance: "", ruleId: "", module: "",
   ruleCategory: MANUAL_INVESTIGATION,
-  severity: "medium", status: "Open", owner: CURRENT_ANALYST,
+  severity: "medium", status: "Open", owner: CURRENT_ANALYST, msisdn: "",
   expectedValue: "", actualValue: "", variance: "", affectedCount: "", estimatedImpact: "",
 };
 
@@ -437,6 +440,9 @@ function CasesPage() {
         severity: form.severity,
         status: form.status,
         owner: form.owner.trim(),
+        // Sent only for Billing Assurance; the service drops it for any other
+        // assurance, so the field never carries a subscriber nothing reads.
+        msisdn: form.msisdn.trim() || null,
         expectedValue: form.expectedValue.trim() || null,
         actualValue: form.actualValue.trim() || null,
         variance: form.variance.trim() || null,
@@ -969,6 +975,7 @@ function AddCaseDialog({
   const modules = selected?.modules ?? [];
   // Only rules belonging to the chosen assurance can be linked.
   const scopedRules = rules.filter((r) => !selected || r.assuranceCode === selected.code);
+  const isBillingAssurance = selected?.code === BILLING_ASSURANCE_CODE;
 
   // Linking a rule adopts its module and issue type — a manually raised case
   // then classifies exactly like one the engine would have raised.
@@ -1091,6 +1098,20 @@ function AddCaseDialog({
               <input value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })}
                 placeholder="Leave empty to keep it unassigned" className={inputCls} />
             </Fld>
+            {/* Billing Assurance only. The MSISDN is what links the case to the
+                rating and billing records, and only that assurance reads them —
+                asking for it elsewhere would collect something nothing uses. */}
+            {isBillingAssurance && (
+              <Fld label="Subscriber MSISDN">
+                <input
+                  value={form.msisdn}
+                  onChange={(e) => setForm({ ...form, msisdn: e.target.value })}
+                  placeholder="9876000003 — links the bill investigation"
+                  inputMode="numeric"
+                  className={inputCls}
+                />
+              </Fld>
+            )}
           </div>
 
           {/* <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">

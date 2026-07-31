@@ -44,11 +44,7 @@ def get_db() -> Iterator[Session]:
 
 def init_db() -> None:
     """Create the schema and any missing tables. Idempotent."""
-    # `canonical` is imported for its mappers only. Its tables live on a
-    # separate MetaData and belong to the rating and billing platforms, so
-    # create_all below never sees them and this service never issues DDL
-    # against a schema it does not own.
-    from app import canonical, models  # noqa: F401  (registers the mappers)
+    from app import models  # noqa: F401  (registers the mappers)
 
     with engine.begin() as conn:
         # An identifier can't be bound as a parameter; the value comes from
@@ -56,30 +52,3 @@ def init_db() -> None:
         conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{SCHEMA}"'))
 
     Base.metadata.create_all(bind=engine)
-    _add_missing_columns()
-
-
-# Columns added to a table that already exists in deployed databases.
-# `create_all` only creates whole tables, so it never sees these. Each entry is
-# (table, column, DDL type) and is applied with IF NOT EXISTS, which makes the
-# whole step a no-op on a database that is already current.
-_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    # The subscriber a Billing Assurance case is about — the join key into the
-    # canonical_rating schema.
-    ("cases", "msisdn", "VARCHAR(24)"),
-)
-
-
-def _add_missing_columns() -> None:
-    """Bring an existing schema up to the current model. Idempotent."""
-    with engine.begin() as conn:
-        for table, column, ddl_type in _ADDED_COLUMNS:
-            conn.execute(
-                text(
-                    f'ALTER TABLE "{SCHEMA}"."{table}" '
-                    f'ADD COLUMN IF NOT EXISTS "{column}" {ddl_type}'
-                )
-            )
-        conn.execute(
-            text(f'CREATE INDEX IF NOT EXISTS ix_cases_msisdn ON "{SCHEMA}"."cases" (msisdn)')
-        )

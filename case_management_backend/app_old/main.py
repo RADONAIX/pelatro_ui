@@ -11,7 +11,6 @@ from app.config import settings
 from app.db import SessionLocal, init_db
 from app.routers import cases as cases_router
 from app.routers import catalog as catalog_router
-from app.routers import investigation as investigation_router
 from app.routers import rules as rules_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -60,7 +59,6 @@ app.add_middleware(
 app.include_router(cases_router.router)
 app.include_router(rules_router.router)
 app.include_router(catalog_router.router)
-app.include_router(investigation_router.router)
 
 
 class Message(BaseModel):

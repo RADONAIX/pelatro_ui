@@ -19,7 +19,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app import attachments, catalog, schemas
-from app.config import settings
 from app.models import Case, CaseActivity, CaseComment, CaseMismatch, ControlRule, utcnow
 
 REFERENCE_PREFIX = "CASE-"
@@ -376,23 +375,6 @@ def _log(case: Case, actor: str, action: str, *, field_: str | None = None,
     )
 
 
-def _billing_msisdn(assurance_code: str, msisdn: str | None) -> str | None:
-    """The subscriber link, kept only for Billing Assurance.
-
-    Dropping it for every other assurance is the whole gate: a case with no
-    MSISDN can never join to canonical_rating, so the investigation endpoints
-    have nothing to answer with and refuse before they query.
-
-    A Billing Assurance case that names no subscriber falls back to
-    `settings.demo_msisdn`, so a case raised from a bill PDF still investigates.
-    That fallback is a demo convenience and is configurable — see config.py.
-    """
-    if assurance_code != catalog.BILLING_ASSURANCE_CODE:
-        return None
-    cleaned = (msisdn or "").strip()
-    return cleaned or (settings.demo_msisdn.strip() or None)
-
-
 def _linked_rule(db: Session, rule_id: str | None) -> ControlRule | None:
     """Resolve the rule a case cites, rejecting an unknown id up front.
 
@@ -482,11 +464,6 @@ def create_case(
         rule_name=payload.rule_name or (rule.name if rule else None),
         rule_category=payload.rule_category or (rule.primitive_category if rule else ""),
         rule_run_id=payload.rule_run_id,
-        # Billing Assurance only. The MSISDN is the join key into the
-        # canonical_rating tables, and no other assurance reads them — storing
-        # it elsewhere would imply a link to postpaid invoicing that does not
-        # exist for a Usage, Partner or Network finding.
-        msisdn=_billing_msisdn(assurance.code, payload.msisdn),
         origin=origin,
         severity=payload.severity,
         status=payload.status,

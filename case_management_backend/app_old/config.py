@@ -30,11 +30,6 @@ class Settings(BaseSettings):
     # this database (administration, air_schema, bi_reports).
     db_schema: str = "assurance"
 
-    # Rated-usage and invoicing records from the rating and billing platforms.
-    # Read-only here, and read only by Billing Assurance investigations — see
-    # app/canonical.py.
-    canonical_schema: str = "canonical_rating"
-
     # Pool sizing — the API is IO-bound, so a small pool with overflow is
     # plenty and keeps idle connections off the server.
     db_pool_size: int = 5
@@ -44,15 +39,6 @@ class Settings(BaseSettings):
 
     # Load the control-rule catalog and demo cases when the tables are empty.
     seed_demo_data: bool = True
-
-    # Subscriber a Billing Assurance case falls back to when it carries no
-    # MSISDN of its own — so a case raised from a bill PDF still walks the full
-    # investigation instead of stopping at "no subscriber linked".
-    #
-    # This is a DEMO convenience: it makes a new case show another subscriber's
-    # rating and invoice records. Set DEMO_MSISDN="" to switch it off, and the
-    # investigation reports an unlinked case truthfully instead.
-    demo_msisdn: str = "9876000003"
 
     # --- Case attachments ---------------------------------------------------
     # Files are written under this directory (created on demand) and referenced

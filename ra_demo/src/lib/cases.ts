@@ -107,6 +107,11 @@ export interface AssuranceCase {
   action: string;
   owner: string;          // "" means unassigned
 
+  // The subscriber under investigation. Only Billing Assurance sets this — it
+  // is the link into the rating and billing source tables, and no other
+  // assurance reads them.
+  msisdn: string | null;
+
   stream: string;
   nodeId: string;
   sourceFeed: string;
@@ -294,7 +299,7 @@ export function buildQuery(params: CaseQuery): URLSearchParams {
   return search;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // FormData must set its own Content-Type: the browser appends the multipart
   // boundary, and overriding it here would make the body unparseable.
   const isForm = typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -403,6 +408,8 @@ export interface CreateCasePayload {
   status?: string;
   action?: string;
   owner?: string;
+  /** Billing Assurance only — the service drops it for any other assurance. */
+  msisdn?: string | null;
   stream?: string;
   nodeId?: string;
   sourceFeed?: string;

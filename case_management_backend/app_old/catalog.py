@@ -47,11 +47,6 @@ ASSURANCES: list[Assurance] = [
               ["AIR", "SDP", "MSC", "CDR", "File Feed", "Mediation"]),
 ]
 
-# The assurance that owns postpaid invoicing. It is the only one linked to the
-# canonical_rating schema — see app/canonical.py — so it is named here rather
-# than spelled "BA" at each of the places that check.
-BILLING_ASSURANCE_CODE = "BA"
-
 ASSURANCE_BY_CODE: dict[str, Assurance] = {a.code: a for a in ASSURANCES}
 ASSURANCE_BY_NAME: dict[str, Assurance] = {a.name.lower(): a for a in ASSURANCES}
 
