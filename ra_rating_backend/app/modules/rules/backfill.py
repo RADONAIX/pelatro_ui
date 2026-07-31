@@ -101,6 +101,11 @@ class Report:
     needs_money_review: list[str] = field(default_factory=list)
     #: Legacy rules the adapter could not convert at all.
     failures: list[tuple[str, str]] = field(default_factory=list)
+    #: Rules whose canonical copy has drifted ahead of legacy — it already holds
+    #: a version at the number the legacy row wants. Reported, never forced:
+    #: renumbering into an occupied slot violates the uniqueness constraint, and
+    #: overwriting the occupant would destroy a version somebody authored here.
+    version_conflicts: list[str] = field(default_factory=list)
     notes: dict[str, list[str]] = field(default_factory=dict)
     #: Populated by :func:`check_parity`.
     compared: int = 0
@@ -118,6 +123,7 @@ class Report:
             "unchanged": self.unchanged,
             "rejected": self.rejected,
             "needs_money_review": len(self.needs_money_review),
+            "version_conflicts": len(self.version_conflicts),
             "failures": len(self.failures),
             "compared": self.compared,
             "differences": len(self.differences),
@@ -183,15 +189,39 @@ async def backfill(
         # it would silently unpublish the whole live tariff.
         status=kernel.RuleStatus.DRAFT,
     )
-    report.written = result.counts.get("NEW", 0) + result.counts.get("CHANGED", 0)
-    report.unchanged = result.counts.get("UNCHANGED", 0)
-    report.rejected = result.counts.get("REJECTED", 0)
+    # Counted from the records rather than from `result.counts`, and the
+    # difference is not cosmetic. A chunk whose write fails rolls its savepoint
+    # back and re-reports every rule in it as QUARANTINED — but the NEW/CHANGED
+    # decision each of those rules was given at RECONCILE is still in `counts`.
+    # Reading `counts` therefore reports a rule as *written* when its row was
+    # rolled back, which is the one lie this tool must never tell: the whole
+    # purpose of the backfill report is to say whether the migration landed.
+    #
+    # The last decision recorded for a rule wins, because the quarantine entry is
+    # appended after the optimistic one.
+    final: dict[str, tuple[str, str]] = {}
     for record in result.records:
-        if record.decision == "REJECTED":
-            report.failures.append((record.rule_key, record.reason))
+        issue = ""
+        for entry in record.issues or ():
+            message = entry.get("message") if isinstance(entry, dict) else None
+            if message:
+                issue = str(message)
+                break
+        final[record.rule_key] = (record.decision, issue or record.reason)
+
+    report.written = sum(
+        1 for decision, _ in final.values() if decision in ("NEW", "CHANGED")
+    )
+    report.unchanged = sum(1 for decision, _ in final.values() if decision == "UNCHANGED")
+    report.rejected = sum(
+        1 for decision, _ in final.values() if decision in ("REJECTED", "QUARANTINED")
+    )
+    for key, (decision, reason) in final.items():
+        if decision in ("REJECTED", "QUARANTINED"):
+            report.failures.append((key, reason))
 
     if not dry_run:
-        await _carry_identity(db, keys)
+        await _carry_identity(db, keys, report)
     return report
 
 
@@ -234,7 +264,9 @@ async def _catalogue_codes(db: AsyncSession) -> dict[str, dict[str, str]]:
     return out
 
 
-async def _carry_identity(db: AsyncSession, rule_keys: list[str]) -> None:
+async def _carry_identity(
+    db: AsyncSession, rule_keys: list[str], report: Report | None = None
+) -> None:
     """Carry the legacy rule's status and version number onto its canonical row.
 
     Two corrections the kernel cannot make on its own, because both are true of a
@@ -281,6 +313,23 @@ async def _carry_identity(db: AsyncSession, rule_keys: list[str]) -> None:
         .scalars()
         .all()
     )
+
+    # Which version numbers each rule already holds, so a renumber can tell an
+    # empty slot from an occupied one before it writes.
+    taken: dict[str, dict[int, str]] = {}
+    for rule_id, number, version_id in (
+        await db.execute(
+            select(
+                CanonicalRuleVersion.rule_id,
+                CanonicalRuleVersion.version_number,
+                CanonicalRuleVersion.rule_version_id,
+            ).where(
+                CanonicalRuleVersion.rule_id.in_([r.rule_id for r in rows])
+            )
+        )
+    ).all():
+        taken.setdefault(rule_id, {})[number] = version_id
+
     for rule in rows:
         source = legacy.get(rule.rule_key)
         if source is None:
@@ -288,9 +337,16 @@ async def _carry_identity(db: AsyncSession, rule_keys: list[str]) -> None:
         status, version_number = source
         rule.status = status
         version = await db.get(CanonicalRuleVersion, rule.current_version_id)
-        if version is not None:
-            version.status = status
-            version.version_number = version_number
+        if version is None:
+            continue
+        version.status = status
+
+        occupant = taken.get(rule.rule_id, {}).get(version_number)
+        if occupant is not None and occupant != version.rule_version_id:
+            if report is not None:
+                report.version_conflicts.append(rule.rule_key)
+            continue
+        version.version_number = version_number
     await db.flush()
 
 
@@ -410,6 +466,13 @@ def _diff(
     for name in (*PARITY_FIELDS, *_DIMENSION_FIELDS):
         a = _comparable(getattr(left, name, None))
         b = _comparable(getattr(right, name, None))
+        if name == "conflict_group":
+            # The legacy UI stored these sentinels where the canonical model
+            # uses NULL. They express the same absence and must not turn a clean
+            # behavioural migration into a false parity failure.
+            absent = {"", "NO", "NONE", "N/A", "NULL"}
+            a = None if str(a or "").strip().upper() in absent else a
+            b = None if str(b or "").strip().upper() in absent else b
         if a != b:
             out.append(Difference(rule_key, name, a, b))
     return out

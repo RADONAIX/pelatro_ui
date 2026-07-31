@@ -160,11 +160,22 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+        # Post-commit only, and only when the mirror is enabled. Placed after the
+        # commit rather than inside the try so a mirror problem cannot reach the
+        # rollback path, and outside the request's transaction so a mirrored row
+        # can never describe work that was rolled back. `drain` never raises.
+        if settings.mirror_enabled:
+            from app.modules.mirror.hooks import drain
+
+            await drain(session)
 
 
 async def dispose_engines() -> None:
     await engine.dispose()
     await identity_engine.dispose()
+    from app.modules.mirror.engine import dispose as dispose_mirror
+
+    await dispose_mirror()
     for source_engine, _ in _source_engines.values():
         await source_engine.dispose()
     _source_engines.clear()

@@ -137,6 +137,37 @@ series.
 
 ---
 
+## Rating assurance (MSC → expected charge → variance)
+
+Reads MSC switch records from the operator's landing database, prices each call
+against the active rule snapshot, compares that with what was billed, and
+explains every number.
+
+```bash
+alembic upgrade head                 # 0013 adds the assurance layer
+python -m scripts.seed_assurance     # optional: the worked example
+
+curl -X POST localhost:8000/api/rating/msc/ingest -d '{"limit": 100000}'
+curl -X POST localhost:8000/api/rating/execute    -d '{"batch_size": 5000}'
+curl localhost:8000/api/rating/results/MSC01-FILE100-3563/explanation
+```
+
+Two things worth knowing before you run it:
+
+* **MSC records carry no charged amount.** That is what a switch record is, not
+  a gap in the loader. Without an OCS/IN source configured every result is
+  `NO_ACTUAL_CHARGE` — the expected charge is computed and stored, but there is
+  nothing to compare it against. It is never inferred as zero.
+* **`alembic revision --autogenerate` needs the guard in `migrations/env.py`.**
+  This service shares a database, and its search path includes `public`; without
+  `_include_object` refusing to drop undeclared tables, autogenerate writes
+  `op.drop_table` for another product's tables into the upgrade path.
+
+Full documentation, including the worked example and the idempotency model:
+[`docs/RATING_ASSURANCE.md`](docs/RATING_ASSURANCE.md).
+
+---
+
 ## Roadmap
 
 See `../RATING_ASSURANCE_PLAN.md` for the full phase-by-phase plan. Phase 1

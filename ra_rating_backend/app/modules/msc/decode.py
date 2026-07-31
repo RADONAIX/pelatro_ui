@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 #: octet. It terminates the number; digits after it do not exist.
 _FILLER = 0xF
 
-#: TBCD reserves b–f for the extended alphabet (``*``, ``#``, a, b, c) used by
+#: TBCD reserves b-f for the extended alphabet (``*``, ``#``, a, b, c) used by
 #: supplementary-service strings. Mapped rather than dropped so an SS-code
 #: dialled string round-trips instead of silently losing characters.
 _EXTENDED = {0xA: "*", 0xB: "#", 0xC: "a", 0xD: "b", 0xE: "c"}

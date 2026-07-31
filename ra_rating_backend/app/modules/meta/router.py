@@ -149,6 +149,16 @@ async def operators(_: CurrentUser) -> list[dict[str, Any]]:
 
 @router.get("/meta/actions", summary="Action types and their parameter schema")
 async def action_types(_: CurrentUser) -> list[dict[str, Any]]:
+    # These tuning fields remain valid in stored/imported rules for backwards
+    # compatibility, but are intentionally not authorable in the rule builder.
+    # The target mirror derives their canonical equivalents from Unit, Initial
+    # pulse and Mode, so exposing both would let users state the same fact twice.
+    hidden_builder_params = {
+        "per_units",
+        "subsequent_seconds",
+        "decimals",
+        "consume_order",
+    }
     return [
         {
             "type": spec.type,
@@ -166,6 +176,7 @@ async def action_types(_: CurrentUser) -> list[dict[str, Any]]:
                     "description": p.description,
                 }
                 for p in spec.params
+                if p.key not in hidden_builder_params
             ],
         }
         for spec in ACTION_SPECS

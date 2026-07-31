@@ -295,6 +295,21 @@ async def test_a_new_version_supersedes_rather_than_edits(db_session):
     assert rate.numeric == Decimal("0.012345")
 
 
+async def test_an_explicit_new_version_is_cut_even_when_behaviour_is_unchanged(
+    db_session,
+):
+    await _ready(db_session)
+    payload = _payload("API explicit version")
+    created = await api.create_rule(db_session, PRINCIPAL, payload)
+
+    updated = await api.new_version(
+        db_session, created.rule.rule_id, PRINCIPAL, payload
+    )
+
+    assert updated.decision == "CHANGED"
+    assert updated.rule.version_number == 2
+
+
 async def test_an_approved_rule_cannot_be_edited_in_place(db_session):
     await _ready(db_session)
     created = await api.create_rule(db_session, PRINCIPAL, _payload("API immutable"))

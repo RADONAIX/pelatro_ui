@@ -40,6 +40,17 @@ async def lifespan(_: FastAPI):
     # else: a superuser sails through a perfect set of policies without touching
     # them, and nothing errors.
     await report_tenant_isolation(engine, settings.rule_db_schema)
+    # The mirror's three lookup tables have no write event to observe — the
+    # platform holds that vocabulary in Python, not in rows — and the rule
+    # tables have foreign keys onto them, so they are reconciled before any
+    # rule can be mirrored. Never raises; a no-op when the mirror is disabled.
+    if settings.mirror_enabled:
+        from app.modules.mirror.hooks import reconcile_vocabulary
+
+        await reconcile_vocabulary()
+    from app.modules.mirror_assurance.service import start_scheduler
+
+    start_scheduler()
     log.info(
         "startup",
         environment=settings.environment,
@@ -49,6 +60,9 @@ async def lifespan(_: FastAPI):
         airflow=settings.airflow_enabled,
     )
     yield
+    from app.modules.mirror_assurance.service import stop_scheduler
+
+    await stop_scheduler()
     await dispose_engines()
     log.info("shutdown")
 

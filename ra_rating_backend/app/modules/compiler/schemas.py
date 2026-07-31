@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -108,3 +109,79 @@ class SnapshotDiff(BaseModel):
 
 class ActivateRequest(Base):
     comment: str = ""
+
+
+# --- Snapshot Details screen -------------------------------------------------
+# Everything below is additive. No existing schema changes shape, so the screens
+# built against the endpoints above keep working unaltered.
+
+
+class CompileReportRead(BaseModel):
+    """Section 4 — is this snapshot safe to activate, and what did compiling say."""
+
+    snapshot_id: str
+    version: int
+    status: str
+    checksum: str
+    rule_count: int
+    compiled_by: str | None = None
+    compiled_at: datetime | None = None
+    #: Compiled past blocking issues. Surfaced first — an override only visible
+    #: in a log is one nobody sees.
+    forced: bool = False
+    error_count: int = 0
+    warning_count: int = 0
+    safe_to_activate: bool = False
+    #: Grouped by cause, so forty findings from one check read as one problem.
+    grouped_issues: list[dict[str, Any]] = Field(default_factory=list)
+    issues: list[Any] = Field(default_factory=list)
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
+class StageGroupRead(BaseModel):
+    """Section 7 — the pipeline, stage by stage, in the order the engine walks it."""
+
+    stage: str
+    stage_order: int
+    rule_count: int
+    #: A sample, ranked the way selection ranks them: specificity then priority.
+    #: Answers "why did that rule win?" without loading four thousand rows.
+    rules: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ReachRead(BaseModel):
+    dimension: str
+    label: str
+    values: list[str] = Field(default_factory=list)
+    #: Rules that pin nothing on this dimension, and so reach everything on it.
+    #: Counted separately because forty wildcard rules are a wider blast radius
+    #: than twelve that name one entity each.
+    wildcard_rules: int = 0
+
+
+class TrafficImpactRead(BaseModel):
+    window_days: int
+    from_date: date
+    to_date: date
+    #: False when there is no rated traffic at all in the window — a different
+    #: statement from an impact of zero, and the screen must not conflate them.
+    has_traffic: bool = False
+    rated_events: int = 0
+    affected_events: int = 0
+    distinct_subscribers: int = 0
+    affected_charge: Decimal = Decimal("0")
+    currency: str = ""
+    top_rules: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ImpactRead(BaseModel):
+    """Section 5 — what activating this would touch, measured not estimated."""
+
+    snapshot_id: str
+    version: int
+    rule_count: int
+    reach: list[ReachRead] = Field(default_factory=list)
+    traffic: TrafficImpactRead | None = None
+    changed_rule_keys: list[str] = Field(default_factory=list)
+    compared_with_version: int | None = None
+    note: str = ""

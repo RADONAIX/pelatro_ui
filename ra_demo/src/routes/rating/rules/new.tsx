@@ -7,8 +7,11 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { useT } from "@/lib/i18n";
 import { ratingError } from "@/lib/rating/api";
 import {
+  useActionSpecs,
   useCanEditRules,
-  useCreateRule,
+  useCatalogList,
+  useCreateCanonicalRule,
+  useRuleSets,
   useRuleTemplates,
 } from "@/lib/rating/hooks";
 import {
@@ -35,8 +38,19 @@ function CreateRulePage() {
   const t = useT();
   const navigate = useNavigate();
   const canEdit = useCanEditRules();
-  const create = useCreateRule();
+  const create = useCreateCanonicalRule();
   const { data: templates = [] } = useRuleTemplates();
+  const { data: actionSpecs = [] } = useActionSpecs();
+  const { data: ruleSets = [] } = useRuleSets();
+  const { data: products = [] } = useCatalogList("products", {
+    status: "ACTIVE",
+  });
+  const { data: offers = [] } = useCatalogList("offers", {
+    status: "ACTIVE",
+  });
+  const { data: tariffPlans = [] } = useCatalogList("tariff-plans", {
+    status: "ACTIVE",
+  });
 
   const [form, setForm] = useState<RuleFormState>(emptyRuleForm);
   const [conditions, setConditions] = useState<ConditionRow[]>([]);
@@ -69,12 +83,21 @@ function CreateRulePage() {
     if (!canSave) return;
     try {
       const rule = await create.mutateAsync(
-        toRulePayload(form, conditions, actions),
+        toCanonicalCreatePayload(form, conditions, actions, {
+          actionSpecs,
+          ruleSets,
+          products,
+          offers,
+          tariffPlans,
+        }),
       );
       toast.success(t("Rule created"), {
-        description: `${rule.rule_key} v${rule.version} — ${t("saved as a draft")}`,
+        description: `${rule.rule.rule_key} v${rule.rule.version_number ?? 1} — ${t("saved as a draft")}`,
       });
-      navigate({ to: "/rating/rules/$ruleId", params: { ruleId: rule.id } });
+      navigate({
+        to: "/rating/rules/$ruleId",
+        params: { ruleId: rule.rule.rule_id },
+      });
     } catch (err) {
       toast.error(t("Couldn't create the rule"), {
         description: ratingError(err),
@@ -206,4 +229,124 @@ function CreateRulePage() {
       </div>
     </AppShell>
   );
+}
+
+const MONEY_PARAMETERS = new Set([
+  "SET_RATE:rate",
+  "SET_MINIMUM_CHARGE:amount",
+  "SET_MAXIMUM_CHARGE:amount",
+  "APPLY_FIXED_DISCOUNT:amount",
+  "APPLY_FIXED_SURCHARGE:amount",
+  "APPLY_FIXED_TAX:amount",
+]);
+
+function toCanonicalCreatePayload(
+  form: RuleFormState,
+  conditions: ConditionRow[],
+  actions: ActionRow[],
+  lookups: {
+    actionSpecs: ReturnType<typeof useActionSpecs>["data"];
+    ruleSets: ReturnType<typeof useRuleSets>["data"];
+    products: ReturnType<typeof useCatalogList>["data"];
+    offers: ReturnType<typeof useCatalogList>["data"];
+    tariffPlans: ReturnType<typeof useCatalogList>["data"];
+  },
+) {
+  const legacy = toRulePayload(form, conditions, actions);
+  const codeFor = (
+    rows: NonNullable<ReturnType<typeof useCatalogList>["data"]>,
+    id: string | null,
+  ) => rows.find((row) => row.id === id)?.code ?? null;
+  const specByAction = new Map(
+    (lookups.actionSpecs ?? []).map((spec) => [spec.type, spec]),
+  );
+
+  return {
+    rule_key: legacy.rule_key,
+    rule_name: legacy.name,
+    description: legacy.description,
+    charging_mode: "BOTH",
+    rule_type_code: legacy.rule_type,
+    service_type: legacy.service_type,
+    validity: {
+      effective_from: legacy.effective_from,
+      effective_to: legacy.effective_to,
+      currency_code: legacy.currency_code,
+    },
+    conditions: {
+      logic: legacy.condition_logic,
+      negated: false,
+      label: "",
+      conditions: legacy.conditions.map((condition) => ({
+        attribute: condition.attribute,
+        operator: condition.operator,
+        values: condition.values,
+        negated: condition.negate,
+        unit: null,
+        currency: null,
+      })),
+      children: [],
+    },
+    actions: legacy.actions.map((action, actionIndex) => {
+      const spec = specByAction.get(action.action_type);
+      const paramTypes = new Map(
+        (spec?.params ?? []).map((parameter) => [
+          parameter.key,
+          parameter.data_type,
+        ]),
+      );
+      return {
+        action_type: action.action_type,
+        target_attribute: null,
+        sequence: actionIndex + 1,
+        parameters: Object.entries(action.params)
+          .filter(([, value]) => value !== undefined && value !== "")
+          .map(([name, value], parameterIndex) => {
+            const monetary = MONEY_PARAMETERS.has(
+              `${action.action_type}:${name}`,
+            );
+            return {
+              name,
+              value,
+              value_type: monetary
+                ? "MONEY"
+                : (paramTypes.get(name) ?? inferValueType(value)),
+              currency: monetary ? legacy.currency_code : null,
+              unit: null,
+              sequence: parameterIndex + 1,
+            };
+          }),
+      };
+    }),
+    behaviour: {
+      priority: legacy.priority,
+      stacking_policy: legacy.stacking_policy,
+      conflict_group: legacy.conflict_group,
+      fallback_policy: "FALLBACK_CHAIN",
+      stop_processing: false,
+      execution_mode: "BOTH",
+      condition_logic: legacy.condition_logic,
+    },
+    targets: {
+      product: codeFor(lookups.products ?? [], legacy.product_id),
+      offer: codeFor(lookups.offers ?? [], legacy.offer_id),
+      tariff_plan: codeFor(lookups.tariffPlans ?? [], legacy.tariff_plan_id),
+    },
+    set_codes: legacy.rule_set_id
+      ? [
+          (lookups.ruleSets ?? []).find(
+            (ruleSet) => ruleSet.id === legacy.rule_set_id,
+          )?.code,
+        ].filter((code): code is string => !!code)
+      : [],
+    owner: legacy.owner,
+    change_reason: legacy.change_comment,
+  };
+}
+
+function inferValueType(value: unknown): string {
+  if (typeof value === "number") return "NUMBER";
+  if (typeof value === "boolean") return "BOOLEAN";
+  if (Array.isArray(value)) return "LIST";
+  return "STRING";
 }

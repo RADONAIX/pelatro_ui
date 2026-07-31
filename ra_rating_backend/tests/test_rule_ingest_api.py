@@ -17,12 +17,14 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from app.modules.imports.constants import suggest_mapping
+from app.modules.rules.api.ingest_router import _ensure_batch_set_membership
 from app.modules.rules.canonical.lineage import RuleIngestionRecord
 from app.modules.rules.canonical.logic import RuleParameter
 from app.modules.rules.canonical.rule import CanonicalRule
+from app.modules.rules.canonical.sets import CanonicalRuleSet, RuleSetMember
 from app.modules.rules.ingest import files, kernel
 from app.modules.rules.ingest.adapters import payload as payload_adapter
 from app.modules.rules.ingest.adapters import tabular
@@ -297,6 +299,40 @@ async def test_re_posting_the_same_file_is_one_batch(db_session):
     _, first = await _ingest(db_session, data, source_system_code=source)
     _, second = await _ingest(db_session, data, source_system_code=source)
     assert second.batch_id == first.batch_id
+
+
+async def test_a_replayed_batch_populates_the_new_import_set(db_session):
+    """Idempotency must not turn the lifecycle selector into an empty set."""
+    await _ready(db_session)
+    source = await _source(db_session)
+    _, result = await _ingest(
+        db_session,
+        _csv(_row("Replay membership", ref="REPLAY-SET-1")),
+        source_system_code=source,
+    )
+    rule_set = CanonicalRuleSet(
+        tenant_id="00000000-0000-0000-0000-000000000001",
+        code="REPLAY_MEMBERSHIP_TEST",
+        name="Replay membership test",
+        set_type="VENDOR_IMPORT",
+    )
+    db_session.add(rule_set)
+    await db_session.flush()
+
+    for _ in range(2):
+        await _ensure_batch_set_membership(
+            db_session,
+            batch_id=result.batch_id,
+            rule_set_id=rule_set.rule_set_id,
+            tenant_id=rule_set.tenant_id,
+        )
+
+    count = await db_session.scalar(
+        select(func.count()).select_from(RuleSetMember).where(
+            RuleSetMember.rule_set_id == rule_set.rule_set_id
+        )
+    )
+    assert count == 1
 
 
 async def test_a_nightly_re_import_cuts_no_versions_for_unchanged_rules(db_session):

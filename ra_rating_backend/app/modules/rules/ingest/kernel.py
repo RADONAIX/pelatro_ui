@@ -50,6 +50,7 @@ from app.modules.rules.ingest import keys, reconcile, resolver, writer
 from app.modules.rules.ingest.reconcile import Decision, ImportMode, Outcome
 from app.modules.rules.validation import registry as validation
 from app.modules.rules.validation.issues import Report, error
+from app.modules.rules.vocabulary.modes import ValidationState
 
 #: Rows per savepoint. Small enough that a failure loses little work, large
 #: enough that the per-chunk flush is not the dominant cost.
@@ -137,6 +138,9 @@ async def ingest(
     status: str = RuleStatus.DRAFT,
     stop_on_error: bool = False,
     raw_records: Sequence[Any] | None = None,
+    rule_set_code: str | None = None,
+    promote_clean: bool = False,
+    force_version: bool = False,
 ) -> BatchResult:
     """Run one batch through all eight steps. The caller owns the commit.
 
@@ -150,6 +154,18 @@ async def ingest(
     without re-running the parser that may itself be the problem. The wizard
     passes nothing — a hand-authored rule has no upstream record, and inventing
     one would put fiction in a forensic table.
+
+    ``rule_set_code`` joins every rule this batch writes to a set, which is what
+    makes the import addressable as one thing afterwards — validate it, approve
+    it, compile it, roll it back.
+
+    ``promote_clean`` lands a rule that validated with no errors at ``VALIDATED``
+    rather than ``DRAFT``. Only imports use it. The validation genuinely happened
+    during ingestion, and landing at DRAFT means the first bulk action an
+    operator takes is always a re-validation that changes nothing — a ceremonial
+    click that teaches people to click without reading. A rule with warnings or
+    errors still lands at ``DRAFT``, because those are the ones a human should
+    look at.
     """
     started = time.perf_counter()
     tenant = tenant_id or settings.default_tenant_id
@@ -204,7 +220,7 @@ async def ingest(
     prepared: list[tuple[int, CanonicalDraft, str, Outcome, Report]] = []
     for offset, draft in enumerate(drafts):
         rule_key, outcome, report = await _prepare(
-            draft, cache, source_system_code, summary
+            draft, cache, source_system_code, summary, force_version=force_version
         )
         if not report.valid:
             summary.record(Decision.REJECTED)
@@ -244,6 +260,7 @@ async def ingest(
     committed = 0
     for chunk_start in range(0, len(prepared), CHUNK_SIZE):
         chunk = prepared[chunk_start : chunk_start + CHUNK_SIZE]
+        committed_in_chunk = 0
         try:
             async with db.begin_nested():
                 for offset, draft, rule_key, outcome, report in chunk:
@@ -251,27 +268,54 @@ async def ingest(
                         await _write_one(
                             db, draft, rule_key, outcome, report,
                             cache=cache, batch=batch, tenant=tenant,
-                            actor=actor, channel=channel, status=status,
-                            offset=offset,
+                            actor=actor, channel=channel,
+                            status=_status_for(status, report, promote_clean),
+                            offset=offset, rule_set_code=rule_set_code,
                         )
                     )
                     committed += 1
+                    committed_in_chunk += 1
         except Exception as exc:
-            # The chunk's savepoint has rolled back; the chunks before it stand.
-            # That is the point of checkpointing: a 40,000-row import that dies at
-            # row 39,000 resumes from 38,500, not from zero.
+            # The chunk's savepoint has rolled back, taking every rule in it —
+            # including the ones that were fine. Retry them one at a time, each
+            # in its own savepoint, so the blast radius of one bad rule is one
+            # rule.
+            #
+            # Without this, a single legacy rule naming a conflict group the
+            # canonical vocabulary lacks quarantines the entire chunk, and on an
+            # estate smaller than CHUNK_SIZE that is the entire estate. The
+            # backfill then writes nothing and reports its cause as "the chunk
+            # containing this rule could not be written", which names the symptom
+            # and not one of the rules responsible.
+            #
+            # The fast path stays fast: this costs a savepoint per row only on
+            # the chunks that actually failed.
             batch.status = BatchStatus.PARTIAL
             batch.error = str(exc)
-            for offset, draft, rule_key, *_ in chunk:
-                records.append(
-                    RecordResult(
-                        offset, rule_key, Decision.QUARANTINED, draft.rule_name,
-                        issues=[error("commit_failed", str(exc)).as_dict()],
-                        reason="The chunk containing this rule could not be written.",
+            del records[len(records) - committed_in_chunk :]
+            committed -= committed_in_chunk
+            for offset, draft, rule_key, outcome, report in chunk:
+                try:
+                    async with db.begin_nested():
+                        records.append(
+                            await _write_one(
+                                db, draft, rule_key, outcome, report,
+                                cache=cache, batch=batch, tenant=tenant,
+                                actor=actor, channel=channel,
+                                status=_status_for(status, report, promote_clean),
+                                offset=offset, rule_set_code=rule_set_code,
+                            )
+                        )
+                        committed += 1
+                except Exception as row_exc:
+                    records.append(
+                        RecordResult(
+                            offset, rule_key, Decision.QUARANTINED, draft.rule_name,
+                            issues=[error("commit_failed", str(row_exc)).as_dict()],
+                            reason=str(row_exc),
+                        )
                     )
-                )
-                summary.record(Decision.QUARANTINED)
-            break
+                    summary.record(Decision.QUARANTINED)
         batch.checkpoint = {"committed_through": chunk_start + len(chunk)}
 
     _write_records(db, batch, records, drafts, raw_records, tenant)
@@ -312,12 +356,21 @@ async def _prepare(
     cache: resolver.ResolutionCache,
     source_system_code: str | None,
     summary: reconcile.Summary,
+    *,
+    force_version: bool = False,
 ) -> tuple[str, Outcome, Report]:
     del summary
     rule_key = keys.derive(draft, source_code=source_system_code)
     report = await validation.check_draft(draft, cache)
     incoming_hash = fingerprint.behaviour_hash(draft)
     outcome = reconcile.decide(draft, rule_key, cache, incoming_hash)
+    if force_version and outcome.decision == Decision.UNCHANGED:
+        outcome = Outcome(
+            Decision.CHANGED,
+            rule_key,
+            outcome.rule_id,
+            reason="A new version was explicitly requested.",
+        )
     return rule_key, outcome, report
 
 
@@ -335,6 +388,7 @@ async def _write_one(
     channel: str,
     status: str,
     offset: int,
+    rule_set_code: str | None = None,
 ) -> RecordResult:
     """Write one prepared draft, or record that it did not need writing."""
     if outcome.decision == Decision.UNCHANGED:
@@ -345,12 +399,19 @@ async def _write_one(
         # catalogue showing last quarter's name for a rule is a catalogue nobody
         # can reconcile against the vendor's document.
         await _refresh_descriptions(db, draft, outcome.rule_id, actor)
+        # Membership is not a version. The rule was in this import, so it is in
+        # this import's rule set — otherwise a re-imported unchanged file yields
+        # an empty set, and every bulk action against it silently does nothing.
+        if rule_set_code and outcome.rule_id:
+            await writer.link_to_sets(
+                db, outcome.rule_id, [rule_set_code], tenant, cache
+            )
         return RecordResult(
             offset, rule_key, Decision.UNCHANGED, draft.rule_name,
             rule_id=outcome.rule_id, issues=report.as_list(), reason=outcome.reason,
         )
 
-    stamped = _with_batch(draft, batch.batch_id)
+    stamped = _with_batch(draft, batch.batch_id, rule_set_code)
     result = await writer.write(
         db, stamped, cache=cache, rule_key=rule_key,
         actor_id=actor.id, actor_name=actor.name, tenant_id=tenant,
@@ -458,15 +519,36 @@ async def _refresh_descriptions(
     rule.updated_by = actor.id
 
 
-def _with_batch(draft: CanonicalDraft, batch_id: str) -> CanonicalDraft:
-    """Stamp the batch onto the draft's provenance.
+def _status_for(default: str, report: Report, promote_clean: bool) -> str:
+    """Where a rule lands, given how cleanly it validated.
+
+    A rule that passed with no issues at all is `VALIDATED`; anything with a
+    warning or an error stays `DRAFT`, because a warning is precisely the case a
+    human should read before the rule moves on.
+    """
+    if not promote_clean or default != RuleStatus.DRAFT:
+        return default
+    return RuleStatus.VALIDATED if report.state == ValidationState.PASS else default
+
+
+def _with_batch(
+    draft: CanonicalDraft, batch_id: str, rule_set_code: str | None = None
+) -> CanonicalDraft:
+    """Stamp the batch and the import's rule set onto the draft.
 
     Drafts are frozen, so this rebuilds rather than mutates — which is the
     property that stops a validation pass leaving a half-modified draft behind.
     """
     from dataclasses import replace
 
-    return replace(draft, provenance=replace(draft.provenance, batch_id=batch_id))
+    set_codes = draft.set_codes
+    if rule_set_code and rule_set_code not in set_codes:
+        set_codes = (*set_codes, rule_set_code)
+    return replace(
+        draft,
+        set_codes=set_codes,
+        provenance=replace(draft.provenance, batch_id=batch_id),
+    )
 
 
 # --- Idempotency -------------------------------------------------------------

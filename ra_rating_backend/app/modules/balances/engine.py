@@ -24,9 +24,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.modules.balances.models import BalanceBucket, BalanceLedgerEntry, UsageCounter
 from app.modules.catalog.models import BundleDefinition
+from app.modules.mirror import hooks as mirror_hooks
 
 log = get_logger("balances")
 
@@ -306,6 +308,12 @@ class BalanceEngine:
         for entry in self.ledger:
             db.add(entry)
         await db.flush()
+        # Bundle balances are the one mirrored table fed by the rating engine
+        # rather than by rule authoring, so it sits behind its own flag and is
+        # off by default — see `mirror_subscriber_enabled` in config.
+        if mirror_hooks.is_enabled() and settings.mirror_subscriber_enabled:
+            for bucket in self.buckets.values():
+                mirror_hooks.record_bundle_balance(db, bucket.id)
         summary = {
             "buckets_touched": len(self.buckets),
             "buckets_created": sum(1 for b in self.created if isinstance(b, BalanceBucket)),

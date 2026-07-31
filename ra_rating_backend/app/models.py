@@ -53,6 +53,11 @@ from app.modules.imports.models import (  # noqa: F401
     RuleImportRow,
     RuleImportTemplate,
 )
+from app.modules.mirror_assurance.models import (  # noqa: F401
+    MirrorAssuranceResult,
+    MirrorAssuranceRun,
+    MirrorAssuranceSchedule,
+)
 from app.modules.msc.models import MscIngestCursor  # noqa: F401
 from app.modules.pipeline.models import (  # noqa: F401
     PipelineEvent,
@@ -94,6 +99,7 @@ from app.modules.rules.canonical import (  # noqa: F401
     RuleTypeRow,
     RuleValidationIssue,
 )
+from app.modules.rules.lifecycle.models import RuleBulkRun  # noqa: F401
 from app.modules.rules.models import (  # noqa: F401
     Rule,
     RuleAction,

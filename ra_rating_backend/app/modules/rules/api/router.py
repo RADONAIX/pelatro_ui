@@ -27,6 +27,7 @@ from sqlalchemy import func, select
 from app.core.deps import DbSession, PageParams, principal_with, require
 from app.core.errors import ConflictError, NotFoundError, RuleStateError
 from app.core.rbac import RatingPermKey
+from app.modules.mirror import hooks as mirror_hooks
 from app.modules.rules.api import schemas as s
 from app.modules.rules.api import service as svc
 from app.modules.rules.canonical.rule import CanonicalRule, CanonicalRuleVersion
@@ -110,6 +111,55 @@ async def list_rules(
     )
 
 
+@router.get(
+    "/stats",
+    response_model=s.RuleEstateStats,
+    summary="Canonical rule-estate counts",
+    dependencies=[Depends(_view)],
+)
+async def rule_estate_stats(db: DbSession) -> s.RuleEstateStats:
+    """Counts for the canonical catalogue, including imported rules."""
+    logical = int(
+        (await db.scalar(select(func.count()).select_from(CanonicalRule))) or 0
+    )
+    versions = int(
+        (await db.scalar(select(func.count()).select_from(CanonicalRuleVersion))) or 0
+    )
+    pending = int(
+        (
+            await db.scalar(
+                select(func.count()).select_from(CanonicalRule).where(
+                    CanonicalRule.status.in_(
+                        (RuleStatus.VALIDATED, RuleStatus.REVIEWED)
+                    )
+                )
+            )
+        )
+        or 0
+    )
+    errors = int(
+        (
+            await db.scalar(
+                select(func.count())
+                .select_from(CanonicalRule)
+                .join(
+                    CanonicalRuleVersion,
+                    CanonicalRuleVersion.rule_version_id
+                    == CanonicalRule.current_version_id,
+                )
+                .where(CanonicalRuleVersion.validation_state == "ERROR")
+            )
+        )
+        or 0
+    )
+    return s.RuleEstateStats(
+        logical_rules=logical,
+        total_versions=versions,
+        pending_approval=pending,
+        rules_with_errors=errors,
+    )
+
+
 @router.post(
     "",
     response_model=s.WriteResponse,
@@ -159,7 +209,12 @@ async def new_version(
     # would move a version onto the wrong logical rule.
     draft = _rekey(draft, rule.rule_key)
     result = await kernel.ingest(
-        db, [draft], actor=_actor(principal), channel="MANUAL", stop_on_error=True
+        db,
+        [draft],
+        actor=_actor(principal),
+        channel="MANUAL",
+        stop_on_error=True,
+        force_version=True,
     )
     return await _write_response(db, result, "version_created")
 
@@ -415,6 +470,10 @@ async def change_status(
 
     await _audit(db, rule, version, principal, payload)
     await db.flush()
+    if version is not None:
+        # Status is part of the mirrored version row. Enqueue after the primary
+        # row is flushed; the actual mirror write still runs only post-commit.
+        mirror_hooks.record_rule_version(db, version.rule_version_id)
     return await svc.detail(db, rule, await svc.lookup_maps(db), version=version)
 
 

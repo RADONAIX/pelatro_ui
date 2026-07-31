@@ -79,6 +79,29 @@ _COMMON: tuple[RuleTypeSpec, ...] = (
        required_action_types=("APPLY_TAX",)),
     _T("ROUNDING", "Rounding", _C.COMMON, "ROUNDING", legacy=True,
        required_action_types=("APPLY_ROUNDING",)),
+    # --- Canonical-rating synonyms (2026-07) ------------------------------
+    # The operator's canonical_rating model names the same families
+    # differently. Same stages, same behaviour — aliases, not new code paths.
+    # Contracts mirror `legacy.REQUIRED_ACTION_FOR_TYPE` exactly; the parity
+    # test holds them together.
+    _T("USAGE_RATE", "Usage rate", _C.COMMON, "BASE_CHARGE",
+       required_action_types=("SET_RATE",), alias_of="BASE_TARIFF",
+       description="The operator's name for a base tariff."),
+    _T("TIERED_USAGE_RATE", "Tiered usage rate", _C.COMMON, "BASE_CHARGE",
+       required_action_types=("SET_TIERED_RATE",), alias_of="BASE_TARIFF",
+       description="A base tariff priced against cumulative usage tiers."),
+    _T("PERCENTAGE_DISCOUNT", "Percentage discount", _C.COMMON, "DISCOUNT",
+       required_action_types=("APPLY_PERCENT_DISCOUNT", "APPLY_FIXED_DISCOUNT",
+                              "APPLY_DISCOUNT"),
+       alias_of="DISCOUNT"),
+    _T("FREE_UNIT", "Free unit", _C.COMMON, "BUNDLE",
+       required_action_types=("CONSUME_ALLOWANCE", "SET_FREE_QUANTITY",
+                              "CONSUME_BUNDLE"),
+       alias_of="BUNDLE",
+       description="Free units drawn from an allowance before charging."),
+    _T("PERCENTAGE_TAX", "Percentage tax", _C.COMMON, "TAX",
+       required_action_types=("APPLY_PERCENT_TAX", "APPLY_FIXED_TAX", "APPLY_TAX"),
+       alias_of="TAX"),
 )
 
 

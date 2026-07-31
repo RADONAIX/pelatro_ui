@@ -36,7 +36,9 @@ class MscIngestCursor(Base, TimestampMixin):
 
     __tablename__ = "msc_ingest_cursor"
     __table_args__ = (
-        UniqueConstraint("source_system", "source_table", name="uq_msc_ingest_cursor_source_system"),
+        UniqueConstraint(
+            "source_system", "source_table", name="uq_msc_ingest_cursor_source_system"
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)

@@ -103,6 +103,10 @@ class BatchSummary(Base):
     #: change nothing until someone publishes them, and one changed rule changes
     #: what subscribers are charged tonight.
     touched_live_pricing: bool = False
+    #: The set this import's rules joined. What makes the whole batch
+    #: addressable afterwards — validate it, approve it, roll it back.
+    rule_set_id: str | None = None
+    rule_set_code: str | None = None
 
 
 class BatchDetail(BatchSummary):
@@ -118,6 +122,25 @@ class BatchDetail(BatchSummary):
     #: was set. Always reported: an operator must be able to tell what they
     #: defined from what an import invented on their behalf.
     created_references: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class RuleSetOut(Base):
+    """A canonical rule set, as the import screen's picker needs it.
+
+    Deliberately not served by the existing `/rule-sets`, which lists the
+    *legacy* `rating.rule_sets`. The two are different tables in different
+    schemas, and offering a legacy id to an endpoint that resolves canonical ones
+    produces a 404 that reads like the set was deleted.
+    """
+
+    rule_set_id: str
+    code: str
+    name: str
+    description: str = ""
+    set_type: str
+    status: str = ""
+    rule_count: int = 0
+    created_at: datetime | None = None
 
 
 class BatchList(Base):

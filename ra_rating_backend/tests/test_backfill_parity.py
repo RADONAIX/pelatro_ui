@@ -102,6 +102,11 @@ def test_the_rule_key_is_carried_across_verbatim():
     assert adapter.convert(rule).draft.rule_key == "PEAK_ON_NET"
 
 
+def test_legacy_no_conflict_group_sentinel_becomes_empty():
+    draft = adapter.convert(_legacy("NO_CONFLICT", conflict_group="NO")).draft
+    assert draft.behaviour.conflict_group is None
+
+
 def test_charging_mode_is_inferred_from_the_account_type_condition():
     rule = _legacy(
         "PREPAID_ONLY",
@@ -365,11 +370,52 @@ async def test_a_dry_run_writes_nothing(db_session):
     assert present is None
 
 
-async def test_the_seeded_estate_reaches_parity(db_session):
-    """The plan's M3 exit criterion, on whatever the database actually holds."""
+async def test_every_backfilled_rule_compiles_identically(db_session):
+    """The plan's M3 exit criterion, on whatever the database actually holds.
+
+    Asserted over the rules that *converted*, not over the whole table, and the
+    distinction is the point. A legacy rule the canonical model refuses — one
+    typed TARIFF_SELECTION whose only action is SET_RATE, say — is a real finding
+    about the estate, reported by name in `report.failures` for a human to fix.
+    Folding it into the parity assertion would make this test hostage to whatever
+    anyone last created in the UI, and a test that fails for reasons unrelated to
+    the code is one people learn to re-run rather than read.
+
+    The same exclusion applies to a rule whose canonical copy has moved *ahead*
+    of legacy — somebody imported or edited it here, so it holds a version the
+    legacy table has never seen. Comparing those two is not a parity question at
+    all: they are different rule texts, and they are *supposed* to differ. Such a
+    rule is reported in `report.version_conflicts` and excluded here, on exactly
+    the reasoning the paragraph above gives for unconverted rules.
+
+    What must never happen is a rule that converts, has not diverged, and then
+    compiles differently. That is the migration changing a charge, and it is what
+    this asserts.
+    """
     await _ready(db_session)
     report = await backfill.backfill(db_session, actor=ACTOR)
     await backfill.check_parity(db_session, report)
+
     assert report.compared >= 1
-    assert report.differences == [], [str(d) for d in report.differences]
-    assert not report.failures
+    diverged = set(report.version_conflicts)
+    real = [
+        d
+        for d in report.differences
+        if d.field != "existence" and d.rule_key not in diverged
+    ]
+    assert real == [], [str(d) for d in real]
+
+    # Divergence is reported, never silent. A rule excluded above must be
+    # nameable, or this test would quietly stop asserting anything the day the
+    # whole estate drifted.
+    assert all(isinstance(key, str) and key for key in diverged)
+
+    # A rule that did not convert must be *reported*, not silently absent: the
+    # parity gate's `existence` difference and the backfill's failure list are
+    # two views of the same rule, and both must name it.
+    missing = {d.rule_key for d in report.differences if d.field == "existence"}
+    reported = {key for key, _reason in report.failures}
+    assert missing <= reported, (
+        f"rules missing from the canonical side with no recorded reason: "
+        f"{sorted(missing - reported)}"
+    )

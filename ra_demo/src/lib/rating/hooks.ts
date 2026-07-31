@@ -34,6 +34,9 @@ import type {
   ConnectorImport,
   PipelineRun,
   PipelineRunDetail,
+  MirrorAssuranceResultPage,
+  MirrorAssuranceRun,
+  MirrorAssuranceSchedule,
   SimulationResult,
   SourceSystem,
   StageSpec,
@@ -43,11 +46,27 @@ import type {
   RatingOverview,
   RuleAttribute,
   RuleDetail,
+  CanonicalRuleListResponse,
+  CanonicalRuleEstateStats,
+  CanonicalRuleDetail,
+  CanonicalVersionSummary,
+  CanonicalAuditEntry,
+  CanonicalWriteResponse,
   RuleListResponse,
   RuleSetRow,
   RuleSummary,
   RuleTemplate,
   ValidationReport,
+  CanonicalRuleSet,
+  CompileReport,
+  ExecutableRule,
+  SnapshotImpact,
+  StageGroup,
+  IngestPreview,
+  IngestBatch,
+  BulkSelector,
+  BulkResponse,
+  BulkJob,
 } from "@/lib/rating/types";
 
 const KEY = "rating";
@@ -193,6 +212,162 @@ export function useRules(filters: RuleFilters) {
         rule_type: filters.rule_type || undefined,
       }),
     staleTime: 10_000,
+  });
+}
+
+/** Canonical rules written by the ingestion kernel (including file imports). */
+export function useCanonicalRules(filters: RuleFilters) {
+  return useQuery({
+    queryKey: [KEY, "canonical-rules", filters],
+    queryFn: () =>
+      get<CanonicalRuleListResponse>("/canonical-rules", {
+        ...filters,
+        search: filters.search || undefined,
+        status: filters.status || undefined,
+        service_type: filters.service_type || undefined,
+        rule_type: filters.rule_type || undefined,
+      }),
+    staleTime: 10_000,
+  });
+}
+
+export function useCanonicalRuleStats() {
+  return useQuery({
+    queryKey: [KEY, "canonical-rules", "stats"],
+    queryFn: () => get<CanonicalRuleEstateStats>("/canonical-rules/stats"),
+    staleTime: 10_000,
+  });
+}
+
+/** Create through the canonical kernel so the returned id is the id exposed by
+ * the canonical catalogue and detail routes. */
+export function useCreateCanonicalRule() {
+  const invalidate = useCanonicalRuleInvalidation();
+  return useMutation({
+    mutationFn: async (body: unknown) => {
+      const { data } = await ratingApi.post<CanonicalWriteResponse>(
+        "/canonical-rules",
+        body,
+      );
+      return data;
+    },
+    onSuccess: (response) => invalidate(response.rule.rule_id),
+  });
+}
+
+export function useCanonicalRule(ruleId: string | undefined) {
+  return useQuery({
+    queryKey: [KEY, "canonical-rule", ruleId],
+    queryFn: () => get<CanonicalRuleDetail>(`/canonical-rules/${ruleId}`),
+    enabled: !!ruleId,
+  });
+}
+
+export function useCanonicalRuleVersions(ruleId: string | undefined) {
+  return useQuery({
+    queryKey: [KEY, "canonical-rule", ruleId, "versions"],
+    queryFn: () =>
+      get<CanonicalVersionSummary[]>(`/canonical-rules/${ruleId}/versions`),
+    enabled: !!ruleId,
+  });
+}
+
+export function useCanonicalRuleAudit(ruleId: string | undefined) {
+  return useQuery({
+    queryKey: [KEY, "canonical-rule", ruleId, "audit"],
+    queryFn: () =>
+      get<CanonicalAuditEntry[]>(`/canonical-rules/${ruleId}/audit`),
+    enabled: !!ruleId,
+  });
+}
+
+function useCanonicalRuleInvalidation() {
+  const qc = useQueryClient();
+  return (ruleId?: string) => {
+    qc.invalidateQueries({ queryKey: [KEY, "canonical-rules"] });
+    qc.invalidateQueries({ queryKey: [KEY, "overview"] });
+    if (ruleId) {
+      qc.invalidateQueries({ queryKey: [KEY, "canonical-rule", ruleId] });
+    }
+  };
+}
+
+export function useUpdateCanonicalRule(ruleId: string | undefined) {
+  const invalidate = useCanonicalRuleInvalidation();
+  return useMutation({
+    mutationFn: async (body: unknown) => {
+      const { data } = await ratingApi.patch<CanonicalWriteResponse>(
+        `/canonical-rules/${ruleId}`,
+        body,
+      );
+      return data;
+    },
+    onSuccess: () => invalidate(ruleId),
+  });
+}
+
+export function useValidateCanonicalRule(ruleId: string | undefined) {
+  const invalidate = useCanonicalRuleInvalidation();
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await ratingApi.post<ValidationReport>(
+        `/canonical-rules/${ruleId}/validate`,
+      );
+      return data;
+    },
+    onSuccess: () => invalidate(ruleId),
+  });
+}
+
+export function useChangeCanonicalRuleStatus(ruleId: string | undefined) {
+  const invalidate = useCanonicalRuleInvalidation();
+  return useMutation({
+    mutationFn: async (body: { status: string; comment?: string }) => {
+      const { data } = await ratingApi.post<CanonicalRuleDetail>(
+        `/canonical-rules/${ruleId}/status`,
+        body,
+      );
+      return data;
+    },
+    onSuccess: () => invalidate(ruleId),
+  });
+}
+
+export function useNewCanonicalRuleVersion(ruleId: string | undefined) {
+  const invalidate = useCanonicalRuleInvalidation();
+  return useMutation({
+    mutationFn: async (body: unknown) => {
+      const { data } = await ratingApi.post<CanonicalWriteResponse>(
+        `/canonical-rules/${ruleId}/versions`,
+        body,
+      );
+      return data;
+    },
+    onSuccess: () => invalidate(ruleId),
+  });
+}
+
+export function useCloneCanonicalRule(ruleId: string | undefined) {
+  const invalidate = useCanonicalRuleInvalidation();
+  return useMutation({
+    mutationFn: async (body: { rule_name: string; rule_key?: string }) => {
+      const { data } = await ratingApi.post<CanonicalWriteResponse>(
+        `/canonical-rules/${ruleId}/clone`,
+        body,
+      );
+      return data;
+    },
+    onSuccess: (response) => invalidate(response.rule.rule_id),
+  });
+}
+
+export function useDeleteCanonicalRule() {
+  const invalidate = useCanonicalRuleInvalidation();
+  return useMutation({
+    mutationFn: async (ruleId: string) => {
+      await ratingApi.delete(`/canonical-rules/${ruleId}`);
+    },
+    onSuccess: () => invalidate(),
   });
 }
 
@@ -449,6 +624,7 @@ export function useCommitImport() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY, "rules"] });
+      qc.invalidateQueries({ queryKey: [KEY, "canonical-rules"] });
       qc.invalidateQueries({ queryKey: [KEY, "overview"] });
       qc.invalidateQueries({ queryKey: [KEY, "import", "history"] });
     },
@@ -505,6 +681,7 @@ function useSnapshotInvalidation() {
     qc.invalidateQueries({ queryKey: [KEY, "snapshots"] });
     qc.invalidateQueries({ queryKey: [KEY, "snapshot"] });
     qc.invalidateQueries({ queryKey: [KEY, "rules"] });
+    qc.invalidateQueries({ queryKey: [KEY, "canonical-rules"] });
     qc.invalidateQueries({ queryKey: [KEY, "overview"] });
   };
 }
@@ -1040,6 +1217,103 @@ export function useRetryStage(runId: string | undefined) {
   });
 }
 
+// --- Mirror rating assurance ------------------------------------------------
+
+export function useMirrorAssuranceSchedule() {
+  return useQuery({
+    queryKey: [KEY, "mirror-assurance", "schedule"],
+    queryFn: () => get<MirrorAssuranceSchedule>("/mirror-assurance/schedule"),
+  });
+}
+
+export function useSaveMirrorAssuranceSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      enabled: boolean;
+      interval_minutes: number;
+      window_hours: number;
+      tolerance: number;
+    }) => {
+      const { data } = await ratingApi.put<MirrorAssuranceSchedule>(
+        "/mirror-assurance/schedule",
+        payload,
+      );
+      return data;
+    },
+    onSuccess: () =>
+      qc.invalidateQueries({
+        queryKey: [KEY, "mirror-assurance", "schedule"],
+      }),
+  });
+}
+
+export function useMirrorAssuranceRuns() {
+  return useQuery({
+    queryKey: [KEY, "mirror-assurance", "runs"],
+    queryFn: () =>
+      get<MirrorAssuranceRun[]>("/mirror-assurance/runs", { limit: 20 }),
+    refetchInterval: (query) => {
+      const rows = query.state.data as MirrorAssuranceRun[] | undefined;
+      return rows?.some((row) => ["QUEUED", "RUNNING"].includes(row.status))
+        ? 2000
+        : false;
+    },
+    staleTime: 1000,
+  });
+}
+
+export function useMirrorAssuranceRun(runId: string | undefined) {
+  return useQuery({
+    queryKey: [KEY, "mirror-assurance", "run", runId],
+    queryFn: () => get<MirrorAssuranceRun>(`/mirror-assurance/runs/${runId}`),
+    enabled: !!runId,
+    refetchInterval: (query) => {
+      const run = query.state.data as MirrorAssuranceRun | undefined;
+      return run && ["QUEUED", "RUNNING"].includes(run.status) ? 1500 : false;
+    },
+  });
+}
+
+export function useStartMirrorAssurance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      window_start: string;
+      window_end: string;
+      tolerance: number;
+    }) => {
+      const { data } = await ratingApi.post<MirrorAssuranceRun>(
+        "/mirror-assurance/runs",
+        payload,
+      );
+      return data;
+    },
+    onSuccess: (run) => {
+      qc.setQueryData([KEY, "mirror-assurance", "run", run.id], run);
+      qc.invalidateQueries({ queryKey: [KEY, "mirror-assurance", "runs"] });
+    },
+  });
+}
+
+export function useMirrorAssuranceResults(
+  runId: string | undefined,
+  offset: number,
+  status: string,
+  active: boolean,
+) {
+  return useQuery({
+    queryKey: [KEY, "mirror-assurance", "results", runId, offset, status],
+    queryFn: () =>
+      get<MirrorAssuranceResultPage>(
+        `/mirror-assurance/runs/${runId}/results`,
+        { limit: 50, offset, status: status || undefined },
+      ),
+    enabled: !!runId,
+    refetchInterval: active ? 2000 : false,
+  });
+}
+
 // --- Connectors -------------------------------------------------------------
 
 export function useConnectorCatalog() {
@@ -1154,4 +1428,312 @@ export function useSimulate() {
 export function useCanSimulate(): boolean {
   const { data } = useRatingMe();
   return !!data?.permissions?.ratingSimulation?.view;
+}
+
+// --- Canonical ingestion + bulk lifecycle (plan B6) -------------------------
+//
+// These sit alongside the legacy `/rule-imports` hooks rather than replacing
+// them. `/rule-ingest` runs the file through the ingestion kernel, which is what
+// makes `charging_mode`, the full rule-type vocabulary and nested XML survive
+// the trip — the legacy importer silently discards all three. It also returns a
+// **rule set**, and the rule set is what makes an import addressable afterwards:
+// validate it, approve it, activate it, roll it back, as one unit.
+
+/** Can the signed-in user approve rules? Bulk actions on live pricing need it. */
+export function useCanApproveRules(): boolean {
+  const { data } = useRatingMe();
+  return !!data?.permissions?.ratingApprovals?.edit;
+}
+
+export function useIngestColumns() {
+  return useQuery({
+    queryKey: [KEY, "ingest", "columns"],
+    queryFn: () => get<ImportColumn[]>("/rule-ingest/columns"),
+    ...VOCAB_OPTIONS,
+  });
+}
+
+/**
+ * Rule sets `/rule-ingest` will actually accept.
+ *
+ * Not `useRuleSets`, which lists the *legacy* `rating.rule_sets`. The two are
+ * different tables in different schemas, and handing a legacy id to the ingest
+ * endpoint produces a 404 that reads like the set was deleted.
+ */
+export function useCanonicalRuleSets() {
+  return useQuery({
+    queryKey: [KEY, "ingest", "rule-sets"],
+    queryFn: () => get<CanonicalRuleSet[]>("/rule-ingest/rule-sets"),
+    staleTime: 30_000,
+  });
+}
+
+export function useIngestBatches(limit = 20) {
+  return useQuery({
+    queryKey: [KEY, "ingest", "batches", limit],
+    queryFn: () =>
+      get<{ items: IngestBatch[]; total: number }>("/rule-ingest/batches", {
+        limit,
+      }),
+    staleTime: 10_000,
+  });
+}
+
+function ingestForm(
+  file: File,
+  vars: Record<string, unknown> = {},
+  mapping?: Record<string, string | null>,
+): FormData {
+  const body = new FormData();
+  body.append("file", file);
+  if (mapping) body.append("mapping", JSON.stringify(mapping));
+  Object.entries(vars).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === "") return;
+    body.append(k, typeof v === "boolean" ? String(v) : String(v));
+  });
+  return body;
+}
+
+/** Dry run through the kernel: it parses, resolves, validates and rolls back. */
+export function useIngestPreview() {
+  return useMutation({
+    mutationFn: async (vars: {
+      file: File;
+      mapping?: Record<string, string | null>;
+      source_system_code?: string;
+      import_mode?: string;
+      default_charging_mode?: string;
+      default_currency?: string;
+      effective_from?: string;
+    }) => {
+      const { file, mapping, ...rest } = vars;
+      const { data } = await ratingApi.post<IngestPreview>(
+        "/rule-ingest/preview",
+        ingestForm(file, rest, mapping),
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      return data;
+    },
+  });
+}
+
+export function useIngestCommit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: {
+      file: File;
+      mapping?: Record<string, string | null>;
+      source_system_code?: string;
+      import_mode?: string;
+      default_charging_mode?: string;
+      default_currency?: string;
+      effective_from?: string;
+      rule_set_id?: string;
+      create_rule_set?: boolean;
+      create_missing_references?: boolean;
+    }) => {
+      const { file, mapping, ...rest } = vars;
+      const { data } = await ratingApi.post<IngestBatch>(
+        "/rule-ingest/batches",
+        ingestForm(file, rest, mapping),
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY, "rules"] });
+      qc.invalidateQueries({ queryKey: [KEY, "canonical-rules"] });
+      qc.invalidateQueries({ queryKey: [KEY, "overview"] });
+      qc.invalidateQueries({ queryKey: [KEY, "ingest", "batches"] });
+    },
+  });
+}
+
+/** Absolute URL for the quarantined-rows CSV, so a plain link downloads it. */
+export function ingestRejectsUrl(batchId: string): string {
+  return `${ratingApi.defaults.baseURL}/rule-ingest/batches/${batchId}/rejects.csv`;
+}
+
+// --- Bulk lifecycle ---------------------------------------------------------
+
+/**
+ * What a bulk operation *would* do. The same call as the real thing minus the
+ * write, so the preview cannot drift from the action it previews.
+ */
+export function useBulkPreview() {
+  return useMutation({
+    mutationFn: async (
+      vars: BulkSelector & { operation?: "validate" | "approve" | "revert" },
+    ) => {
+      const { data } = await ratingApi.post<BulkResponse>(
+        "/rule-lifecycle/preview",
+        { operation: "approve", ...vars },
+      );
+      return data;
+    },
+  });
+}
+
+/** Run a bulk operation synchronously. Refused above 2,000 rules — use a job. */
+export function useBulkAction(
+  operation: "validate" | "approve" | "revert" | "activate" | "delete",
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      vars: BulkSelector & {
+        comment?: string;
+        atomic?: boolean;
+        force?: boolean;
+        dry_run?: boolean;
+      },
+    ) => {
+      const { data } = await ratingApi.post<BulkResponse>(
+        `/rule-lifecycle/${operation}`,
+        vars,
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY, "rules"] });
+      qc.invalidateQueries({ queryKey: [KEY, "canonical-rules"] });
+      qc.invalidateQueries({ queryKey: [KEY, "overview"] });
+      qc.invalidateQueries({ queryKey: [KEY, "snapshots"] });
+      qc.invalidateQueries({ queryKey: [KEY, "ingest", "batches"] });
+    },
+  });
+}
+
+/** Queue a bulk operation. Returns immediately with a run to poll. */
+export function useSubmitBulkJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      vars: BulkSelector & {
+        operation: "validate" | "approve" | "revert" | "activate" | "delete";
+        comment?: string;
+        atomic?: boolean;
+        force?: boolean;
+        dry_run?: boolean;
+      },
+    ) => {
+      const { data } = await ratingApi.post<BulkJob>(
+        "/rule-lifecycle/jobs",
+        vars,
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY, "lifecycle", "jobs"] });
+    },
+  });
+}
+
+/**
+ * Poll one run until it reaches a terminal state.
+ *
+ * Polling stops on its own rather than running forever: a screen left open on a
+ * finished job should not keep a request every second going all afternoon.
+ */
+export function useBulkJob(runId: string | null) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: [KEY, "lifecycle", "jobs", runId],
+    enabled: !!runId,
+    queryFn: async () => {
+      const job = await get<BulkJob>(`/rule-lifecycle/jobs/${runId}`);
+      if (job.status === "SUCCEEDED" || job.status === "REJECTED") {
+        // The estate moved. Anything showing rule status is now stale.
+        qc.invalidateQueries({ queryKey: [KEY, "rules"] });
+        qc.invalidateQueries({ queryKey: [KEY, "snapshots"] });
+      }
+      return job;
+    },
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "PENDING" || status === "RUNNING" ? 1_000 : false;
+    },
+  });
+}
+
+export function useBulkJobHistory(limit = 20) {
+  return useQuery({
+    queryKey: [KEY, "lifecycle", "jobs", "history", limit],
+    queryFn: () =>
+      get<{ items: BulkJob[]; total: number }>("/rule-lifecycle/jobs", {
+        limit,
+      }),
+    staleTime: 5_000,
+  });
+}
+
+// --- Snapshot detail --------------------------------------------------------
+//
+// Each section of the detail page fetches independently. A snapshot's impact
+// analysis reads rated traffic and is by far the slowest of these; putting it in
+// one combined request would make the rule list — the thing the operator came
+// for — wait for it.
+
+export function useSnapshotRules(
+  id: string | null,
+  params: {
+    execution_stage?: string;
+    service_type?: string;
+    limit?: number;
+  } = {},
+) {
+  return useQuery({
+    queryKey: [KEY, "snapshot", id, "rules", params],
+    enabled: !!id,
+    queryFn: () =>
+      get<ExecutableRule[]>(`/rule-snapshots/${id}/rules`, {
+        limit: params.limit ?? 200,
+        execution_stage: params.execution_stage || undefined,
+        service_type: params.service_type || undefined,
+      }),
+    staleTime: 30_000,
+  });
+}
+
+export function useSnapshotReport(id: string | null) {
+  return useQuery({
+    queryKey: [KEY, "snapshot", id, "report"],
+    enabled: !!id,
+    queryFn: () => get<CompileReport>(`/rule-snapshots/${id}/report`),
+    staleTime: 30_000,
+  });
+}
+
+export function useSnapshotExecutionOrder(id: string | null) {
+  return useQuery({
+    queryKey: [KEY, "snapshot", id, "execution-order"],
+    enabled: !!id,
+    queryFn: () => get<StageGroup[]>(`/rule-snapshots/${id}/execution-order`),
+    staleTime: 30_000,
+  });
+}
+
+/** Slowest of the sections — it measures against rated traffic. */
+export function useSnapshotImpact(id: string | null) {
+  return useQuery({
+    queryKey: [KEY, "snapshot", id, "impact"],
+    enabled: !!id,
+    queryFn: () => get<SnapshotImpact>(`/rule-snapshots/${id}/impact`),
+    staleTime: 60_000,
+  });
+}
+
+/** Diff against the snapshot that came before this one. */
+export function useSnapshotDiffWithPrevious(id: string | null) {
+  return useQuery({
+    queryKey: [KEY, "snapshot", id, "diff-previous"],
+    enabled: !!id,
+    queryFn: () => get<SnapshotDiff>(`/rule-snapshots/${id}/diff`),
+    staleTime: 30_000,
+  });
+}
+
+/** Absolute URL, so a plain link downloads it with the browser's own progress. */
+export function snapshotExportUrl(id: string, format: "csv" | "json" | "xml") {
+  return `${ratingApi.defaults.baseURL}/rule-snapshots/${id}/export?format=${format}`;
 }

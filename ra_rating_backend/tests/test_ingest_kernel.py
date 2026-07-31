@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import func, select, text
@@ -37,7 +38,7 @@ from app.modules.rules.canonical.draft import (
 from app.modules.rules.canonical.lineage import RuleValidationIssue
 from app.modules.rules.canonical.logic import RuleParameter
 from app.modules.rules.canonical.rule import CanonicalRule, CanonicalRuleVersion
-from app.modules.rules.ingest import kernel, keys
+from app.modules.rules.ingest import kernel, keys, reconcile
 from app.modules.rules.ingest.reconcile import Decision, ImportMode
 from app.modules.rules.vocabulary.modes import ChargingMode
 from app.modules.rules.vocabulary.sync import sync_vocabulary
@@ -165,6 +166,24 @@ def test_a_suggested_key_is_made_unique_rather_than_rejected():
 # --- Reconciliation ---------------------------------------------------------
 
 
+def test_retired_identity_is_reintroduced_but_active_identity_stays_unchanged():
+    retired = SimpleNamespace(
+        rule_index={"PRICE": ("rule-id", "same-hash")},
+        rule_statuses={"PRICE": "RETIRED"},
+    )
+    active = SimpleNamespace(
+        rule_index={"PRICE": ("rule-id", "same-hash")},
+        rule_statuses={"PRICE": "ACTIVE"},
+    )
+
+    assert reconcile.decide(None, "PRICE", retired, "same-hash").decision == (
+        Decision.CHANGED
+    )
+    assert reconcile.decide(None, "PRICE", active, "same-hash").decision == (
+        Decision.UNCHANGED
+    )
+
+
 async def test_importing_the_same_rule_twice_cuts_one_version(db_session):
     """The decision the whole behaviour hash exists for."""
     await _ready(db_session)
@@ -178,6 +197,32 @@ async def test_importing_the_same_rule_twice_cuts_one_version(db_session):
     assert second.counts.get(Decision.UNCHANGED) == 1
     assert not second.counts.get(Decision.CHANGED)
     assert await _count_versions(db_session, key) == 1
+
+
+async def test_reimporting_a_retired_rule_reintroduces_it_as_a_new_version(
+    db_session,
+):
+    await _ready(db_session)
+    draft = _tariff("Kernel retired reintroduction")
+    key = keys.derive(draft)
+    await kernel.ingest(db_session, [draft], actor=ACTOR)
+
+    rule = (
+        await db_session.execute(
+            select(CanonicalRule).where(CanonicalRule.rule_key == key)
+        )
+    ).scalar_one()
+    current = await db_session.get(CanonicalRuleVersion, rule.current_version_id)
+    rule.status = "RETIRED"
+    current.status = "RETIRED"
+    await db_session.flush()
+
+    result = await kernel.ingest(db_session, [draft], actor=ACTOR)
+    await db_session.refresh(rule)
+
+    assert result.counts.get(Decision.CHANGED) == 1
+    assert await _count_versions(db_session, key) == 2
+    assert rule.status == "DRAFT"
 
 
 async def test_a_rate_change_of_one_millionth_is_caught(db_session):

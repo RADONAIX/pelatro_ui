@@ -47,8 +47,17 @@ class RuleSnapshot(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
     #: Null = the whole estate. Set to compile one rule set in isolation.
+    #: References the *legacy* `rating.rule_sets`.
     rule_set_id: Mapped[str | None] = mapped_column(
         ForeignKey("rule_sets.id", ondelete="SET NULL"), nullable=True
+    )
+    #: The canonical rule set a snapshot was compiled from, when the compile
+    #: source is CANONICAL. A separate column rather than a reuse of
+    #: `rule_set_id`, because the two point at different tables in different
+    #: schemas — and widening the legacy FK to accept both would mean dropping
+    #: it, which trades a real constraint for a convention nobody enforces.
+    canonical_rule_set_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
     )
     status: Mapped[str] = mapped_column(
         String(16),

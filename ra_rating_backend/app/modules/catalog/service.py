@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError
 from app.modules.catalog.constants import CatalogStatus
+from app.modules.mirror import hooks as mirror_hooks
 
 
 async def get_by_id[T](db: AsyncSession, model: type[T], entity_id: str, label: str) -> T:
@@ -81,6 +82,7 @@ async def create(
     db.add(obj)
     await db.flush()
     await db.refresh(obj)
+    mirror_hooks.record_catalog_entity(db, model, obj.id)
     return obj
 
 
@@ -99,6 +101,7 @@ async def update(
         setattr(obj, key, value)
     await db.flush()
     await db.refresh(obj)
+    mirror_hooks.record_catalog_entity(db, model, obj.id)
     return obj
 
 
@@ -110,4 +113,5 @@ async def retire(db: AsyncSession, model: type[Any], entity_id: str, *, label: s
     obj.status = CatalogStatus.RETIRED.value
     await db.flush()
     await db.refresh(obj)
+    mirror_hooks.record_catalog_entity(db, model, obj.id)
     return obj

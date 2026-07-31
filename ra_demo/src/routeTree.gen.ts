@@ -48,6 +48,7 @@ import { Route as RatingApprovalsRouteImport } from './routes/rating/approvals'
 import { Route as AssuranceAppIdRouteImport } from './routes/assurance.$appId'
 import { Route as RatingRulesIndexRouteImport } from './routes/rating/rules/index'
 import { Route as AssuranceAppIdIndexRouteImport } from './routes/assurance.$appId.index'
+import { Route as RatingSnapshotsSnapshotIdRouteImport } from './routes/rating/snapshots_.$snapshotId'
 import { Route as RatingRunsRunIdRouteImport } from './routes/rating/runs_.$runId'
 import { Route as RatingRulesOverviewRouteImport } from './routes/rating/rules/overview'
 import { Route as RatingRulesNewRouteImport } from './routes/rating/rules/new'
@@ -252,6 +253,12 @@ const AssuranceAppIdIndexRoute = AssuranceAppIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AssuranceAppIdRoute,
 } as any)
+const RatingSnapshotsSnapshotIdRoute =
+  RatingSnapshotsSnapshotIdRouteImport.update({
+    id: '/rating/snapshots_/$snapshotId',
+    path: '/rating/snapshots/$snapshotId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const RatingRunsRunIdRoute = RatingRunsRunIdRouteImport.update({
   id: '/rating/runs_/$runId',
   path: '/rating/runs/$runId',
@@ -340,6 +347,7 @@ export interface FileRoutesByFullPath {
   '/rating/rules/new': typeof RatingRulesNewRoute
   '/rating/rules/overview': typeof RatingRulesOverviewRoute
   '/rating/runs/$runId': typeof RatingRunsRunIdRoute
+  '/rating/snapshots/$snapshotId': typeof RatingSnapshotsSnapshotIdRoute
   '/assurance/$appId/': typeof AssuranceAppIdIndexRoute
   '/rating/rules/': typeof RatingRulesIndexRoute
 }
@@ -388,6 +396,7 @@ export interface FileRoutesByTo {
   '/rating/rules/new': typeof RatingRulesNewRoute
   '/rating/rules/overview': typeof RatingRulesOverviewRoute
   '/rating/runs/$runId': typeof RatingRunsRunIdRoute
+  '/rating/snapshots/$snapshotId': typeof RatingSnapshotsSnapshotIdRoute
   '/assurance/$appId': typeof AssuranceAppIdIndexRoute
   '/rating/rules': typeof RatingRulesIndexRoute
 }
@@ -438,6 +447,7 @@ export interface FileRoutesById {
   '/rating/rules/new': typeof RatingRulesNewRoute
   '/rating/rules/overview': typeof RatingRulesOverviewRoute
   '/rating/runs_/$runId': typeof RatingRunsRunIdRoute
+  '/rating/snapshots_/$snapshotId': typeof RatingSnapshotsSnapshotIdRoute
   '/assurance/$appId/': typeof AssuranceAppIdIndexRoute
   '/rating/rules/': typeof RatingRulesIndexRoute
 }
@@ -489,6 +499,7 @@ export interface FileRouteTypes {
     | '/rating/rules/new'
     | '/rating/rules/overview'
     | '/rating/runs/$runId'
+    | '/rating/snapshots/$snapshotId'
     | '/assurance/$appId/'
     | '/rating/rules/'
   fileRoutesByTo: FileRoutesByTo
@@ -537,6 +548,7 @@ export interface FileRouteTypes {
     | '/rating/rules/new'
     | '/rating/rules/overview'
     | '/rating/runs/$runId'
+    | '/rating/snapshots/$snapshotId'
     | '/assurance/$appId'
     | '/rating/rules'
   id:
@@ -586,6 +598,7 @@ export interface FileRouteTypes {
     | '/rating/rules/new'
     | '/rating/rules/overview'
     | '/rating/runs_/$runId'
+    | '/rating/snapshots_/$snapshotId'
     | '/assurance/$appId/'
     | '/rating/rules/'
   fileRoutesById: FileRoutesById
@@ -635,6 +648,7 @@ export interface RootRouteChildren {
   RatingRulesNewRoute: typeof RatingRulesNewRoute
   RatingRulesOverviewRoute: typeof RatingRulesOverviewRoute
   RatingRunsRunIdRoute: typeof RatingRunsRunIdRoute
+  RatingSnapshotsSnapshotIdRoute: typeof RatingSnapshotsSnapshotIdRoute
   RatingRulesIndexRoute: typeof RatingRulesIndexRoute
 }
 
@@ -913,6 +927,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AssuranceAppIdIndexRouteImport
       parentRoute: typeof AssuranceAppIdRoute
     }
+    '/rating/snapshots_/$snapshotId': {
+      id: '/rating/snapshots_/$snapshotId'
+      path: '/rating/snapshots/$snapshotId'
+      fullPath: '/rating/snapshots/$snapshotId'
+      preLoaderRoute: typeof RatingSnapshotsSnapshotIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rating/runs_/$runId': {
       id: '/rating/runs_/$runId'
       path: '/rating/runs/$runId'
@@ -1031,6 +1052,7 @@ const rootRouteChildren: RootRouteChildren = {
   RatingRulesNewRoute: RatingRulesNewRoute,
   RatingRulesOverviewRoute: RatingRulesOverviewRoute,
   RatingRunsRunIdRoute: RatingRunsRunIdRoute,
+  RatingSnapshotsSnapshotIdRoute: RatingSnapshotsSnapshotIdRoute,
   RatingRulesIndexRoute: RatingRulesIndexRoute,
 }
 export const routeTree = rootRouteImport

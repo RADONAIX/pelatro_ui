@@ -312,7 +312,7 @@ async def group_counts(db: AsyncSession, msisdns: set[str], on: date) -> dict[st
             .group_by(SubscriberGroupMembership.msisdn)
         )
     ).all()
-    return {msisdn: count for msisdn, count in rows}
+    return dict(rows)
 
 
 def _destination_type(zone_type: str | None, relation: str | None, service: str) -> str | None:

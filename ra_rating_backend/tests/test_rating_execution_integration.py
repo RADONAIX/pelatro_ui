@@ -23,6 +23,7 @@ from sqlalchemy import func, select
 
 from app.modules.cdr.models import CdrEnriched, SubscriberGroupMembership
 from app.modules.compiler import service as snapshot_svc
+from app.modules.compiler.models import ExecutableRule
 from app.modules.rating import execution
 from app.modules.rating.audit_models import (
     CalculationComponent,
@@ -40,14 +41,50 @@ MSISDN = "233241234567"
 pytestmark = pytest.mark.asyncio
 
 
+#: The rules the worked example needs. Asserted to be *in the active snapshot*,
+#: not merely present in the rule table: rules are compiled into a snapshot and
+#: superseded out of one independently of this suite, so a snapshot that predates
+#: the seed would silently produce a different — and correct-for-that-snapshot —
+#: charge, and the test would report a failure that is really a stale fixture.
+REQUIRED_RULES = frozenset(
+    {
+        "R100_GENERAL_OFFNET",
+        "R200_SMART20_OFFNET_PEAK",
+        "R300_GOLD_CUSTOMER",
+        "B400_VOICE_BUNDLE",
+        "D500_GOLD_DISCOUNT",
+        "T100_VOICE_VAT",
+        "RD10_VOICE_PULSE",
+    }
+)
+
+
 async def _require_seed(db) -> None:
     usage = (
         await db.execute(select(CdrEnriched).where(CdrEnriched.usage_id == USAGE_ID))
     ).scalar_one_or_none()
     if usage is None:
         pytest.skip("run `python -m scripts.seed_assurance` first")
-    if await snapshot_svc.active_snapshot(db) is None:
+
+    snapshot = await snapshot_svc.active_snapshot(db)
+    if snapshot is None:
         pytest.skip("no active rule snapshot — compile and activate one first")
+
+    compiled = set(
+        (
+            await db.execute(
+                select(ExecutableRule.rule_key).where(
+                    ExecutableRule.snapshot_id == snapshot.id
+                )
+            )
+        ).scalars()
+    )
+    missing = REQUIRED_RULES - compiled
+    if missing:
+        pytest.skip(
+            "the active snapshot does not contain the worked example's rules "
+            f"({', '.join(sorted(missing))}) — approve them and recompile"
+        )
 
 
 async def _rate(db) -> RatingResultFinal:
@@ -61,7 +98,7 @@ async def _rate(db) -> RatingResultFinal:
 
 class TestWorkedExampleEndToEnd:
     async def test_the_expected_charge_is_0_16(self, db_session):
-        """§28: 195s − 120s bundle → 90s pulsed → 0.15 → −10% → +15% → 0.16."""
+        """§28: 195s less a 120s bundle, pulsed to 90s, priced, discounted, taxed."""
         await _require_seed(db_session)
         result = await _rate(db_session)
         assert result.expected_charge == Decimal("0.160000")

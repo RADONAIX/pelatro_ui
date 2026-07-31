@@ -1,4 +1,4 @@
-"""Candidate selection, condition evaluation and rule resolution (§12–§15).
+"""Candidate selection, condition evaluation and rule resolution (§12-§15).
 
 Three responsibilities, in order:
 
@@ -460,6 +460,15 @@ def facts_for(row: Any) -> dict[str, Any]:
         "rating_group": row.rating_group,
         "duration_seconds": row.duration_seconds,
         "usage_volume": row.usage_volume,
+        # Canonical-rating attribute aliases (2026-07): the same facts under the
+        # operator's own names, so a rule authored as `duration_sec` or
+        # `volume_kb` evaluates identically to one authored on the legacy key.
+        # volume_kb converts: the platform fact is bytes, the alias kilobytes.
+        "duration_sec": row.duration_seconds,
+        "volume_kb": (
+            float(row.usage_volume) / 1024.0 if row.usage_volume is not None else None
+        ),
+        "offer_code": row.offer_code,
         "calling_number": row.calling_number,
         "called_number": row.called_number,
         "msisdn": row.msisdn,

@@ -17,32 +17,42 @@
 -- `tenant_isolation_enforced`; if it says `tenant_isolation_not_enforced`, the
 -- service is still connecting as the wrong role.
 --
---     psql -d radonaix_app -f deploy/postgres/tenant-isolation.sql
+--     psql -v app_database=radonaix_app \
+--          -v app_password='a-secret-from-your-secret-store' \
+--          -f deploy/postgres/tenant-isolation.sql
 --
 -- Safe to re-run.
 
-\set app_role      'radonaix_rating'
-\set app_password  'CHANGE_ME_BEFORE_RUNNING'
-\set app_database  'radonaix_app'
+\if :{?app_role}
+\else
+\set app_role 'radonaix_rating'
+\endif
+\if :{?app_password}
+\else
+\warn 'app_password is required; pass -v app_password=...'
+\quit
+\endif
+\if :{?app_database}
+\else
+\set app_database 'radonaix_app'
+\endif
 
 BEGIN;
 
--- 1. The role. NOSUPERUSER and NOBYPASSRLS are the entire point of this file;
---    everything else here is ordinary plumbing.
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role') THEN
-        EXECUTE format(
-            'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOBYPASSRLS '
-            'NOCREATEDB NOCREATEROLE INHERIT',
-            :'app_role', :'app_password'
-        );
-    ELSE
-        -- Re-run: make sure nobody has granted it the exemptions since.
-        EXECUTE format('ALTER ROLE %I NOSUPERUSER NOBYPASSRLS', :'app_role');
-    END IF;
-END
-$$;
+-- 1. The role. `\gexec` is intentional: psql does not substitute variables
+--    inside a dollar-quoted DO body. Generate CREATE only when it is absent,
+--    then make every security-sensitive attribute explicit on every re-run.
+SELECT format(
+           'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOBYPASSRLS '
+           'NOCREATEDB NOCREATEROLE INHERIT',
+           :'app_role', :'app_password'
+       )
+ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_role')
+\gexec
+
+ALTER ROLE :"app_role"
+    WITH LOGIN PASSWORD :'app_password'
+    NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE INHERIT;
 
 -- 2. Connect and schema usage.
 GRANT CONNECT ON DATABASE :"app_database" TO :"app_role";

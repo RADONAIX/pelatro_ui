@@ -115,6 +115,9 @@ export interface RuleSummary {
   effective_from: string;
   effective_to: string | null;
   currency_code: string | null;
+  product_code?: string | null;
+  offer_code?: string | null;
+  tariff_plan_code?: string | null;
   source_system: string;
   owner: string | null;
   created_by: string | null;
@@ -142,6 +145,139 @@ export interface RuleListResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+/** One row returned by the canonical `/canonical-rules` catalogue. */
+export interface CanonicalRuleSummary {
+  rule_id: string;
+  rule_key: string;
+  rule_name: string;
+  charging_mode: string;
+  rule_type_code: string;
+  rule_type_name: string;
+  stage_code: string;
+  service_type: string;
+  status: RuleStatus;
+  owner: string | null;
+  source: string;
+  version_number: number | null;
+  priority: number | null;
+  specificity_score: number | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  currency_code: string | null;
+  validation_state: string;
+  condition_count: number;
+  action_count: number;
+  updated_at: string | null;
+}
+
+export interface CanonicalRuleListResponse {
+  items: CanonicalRuleSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface CanonicalRuleEstateStats {
+  logical_rules: number;
+  total_versions: number;
+  pending_approval: number;
+  rules_with_errors: number;
+}
+
+export interface CanonicalCondition {
+  attribute: string;
+  operator: string;
+  values: unknown[];
+  value_type: string;
+  negated: boolean;
+  unit_code: string | null;
+  currency_code: string | null;
+  sequence: number;
+}
+
+export interface CanonicalConditionGroup {
+  logic: string;
+  negated: boolean;
+  label: string;
+  sequence: number;
+  conditions: CanonicalCondition[];
+  children: CanonicalConditionGroup[];
+}
+
+export interface CanonicalActionParameter {
+  name: string;
+  value: unknown;
+  value_type: string;
+  numeric: number | string | null;
+  currency_code: string | null;
+  unit_code: string | null;
+  sequence: number;
+}
+
+export interface CanonicalAction {
+  action_type: string;
+  label: string;
+  stage_code: string;
+  target_attribute: string | null;
+  parameters: CanonicalActionParameter[];
+  sequence: number;
+}
+
+export interface CanonicalVersionSummary {
+  rule_version_id: string;
+  version_number: number;
+  status: RuleStatus;
+  validation_state: string;
+  effective_from: string;
+  effective_to: string | null;
+  priority: number;
+  specificity_score: number;
+  execution_mode: string;
+  change_reason: string;
+  created_at: string;
+}
+
+export interface CanonicalAuditEntry {
+  action: string;
+  version_number: number | null;
+  from_status: string | null;
+  to_status: string | null;
+  channel: string;
+  actor_name: string | null;
+  comment: string;
+  created_at: string;
+}
+
+export interface CanonicalRuleDetail extends CanonicalRuleSummary {
+  description: string;
+  execution_mode: string;
+  stacking_policy: string;
+  conflict_group: string | null;
+  fallback_policy: string;
+  stop_processing: boolean;
+  condition_logic: string;
+  behaviour_hash: string;
+  change_reason: string;
+  rule_version_id: string | null;
+  // The targets the edit form reads back when rebuilding a draft. Optional and
+  // nullable to match the legacy rule shape above — the detail endpoint fills
+  // them from the catalog, and a rule bound to no product sends none.
+  product_code?: string | null;
+  offer_code?: string | null;
+  tariff_plan_code?: string | null;
+  conditions: CanonicalConditionGroup | null;
+  actions: CanonicalAction[];
+  issues: ValidationIssue[];
+  versions: CanonicalVersionSummary[];
+}
+
+export interface CanonicalWriteResponse {
+  rule: CanonicalRuleDetail;
+  decision: string;
+  issues: ValidationIssue[];
+  validation_state: string;
 }
 
 export interface ValidationIssue {
@@ -733,6 +869,65 @@ export interface PipelineRunDetail extends PipelineRun {
   events: PipelineEvent[];
 }
 
+export interface MirrorAssuranceStage {
+  key: string;
+  label: string;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED";
+  detail: string;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface MirrorAssuranceRun {
+  id: string;
+  trigger: "MANUAL" | "SCHEDULED";
+  status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+  window_start: string;
+  window_end: string;
+  tolerance: number | string;
+  stages: MirrorAssuranceStage[];
+  row_count: number;
+  matched_count: number;
+  undercharged_count: number;
+  overcharged_count: number;
+  exception_count: number;
+  total_variance: number | string;
+  summary: { by_status?: Record<string, number> };
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  triggered_by_name: string | null;
+  created_at: string;
+}
+
+export interface MirrorAssuranceSchedule {
+  id: string;
+  enabled: boolean;
+  interval_minutes: number;
+  window_hours: number;
+  tolerance: number | string;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  updated_by_name: string | null;
+}
+
+export interface MirrorAssuranceResult {
+  ordinal: number;
+  event_id: string;
+  service_type: string | null;
+  reconciliation_status: string;
+  event_time: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface MirrorAssuranceResultPage {
+  total: number;
+  limit: number;
+  offset: number;
+  rows: MirrorAssuranceResult[];
+}
+
 // --- Connectors -------------------------------------------------------------
 
 export interface VendorSpec {
@@ -843,4 +1038,284 @@ export interface SimulationResult {
     root_cause: string | null;
     explanation: string;
   } | null;
+}
+
+// --- Canonical ingestion (`/rule-ingest`) -----------------------------------
+//
+// Distinct from the legacy `Import*` types above, and deliberately not a
+// replacement for them at the type level. The two endpoints answer different
+// questions: `/rule-imports` reports rows in and rows out, while `/rule-ingest`
+// reports what the kernel *decided* about each row — new, changed, unchanged,
+// withdrawn or quarantined. Collapsing them into one shape would mean throwing
+// away the half of the answer an operator acts on.
+
+export interface CanonicalRuleSet {
+  rule_set_id: string;
+  code: string;
+  name: string;
+  description: string;
+  set_type: string;
+  status: string;
+  rule_count: number;
+  created_at: string | null;
+}
+
+export interface IngestParseRejection {
+  source_offset: number;
+  reason: string;
+  raw: Record<string, unknown>;
+}
+
+/** A catalogue entry the file references and the catalogue lacks. */
+export interface IngestMissingMetadata {
+  entity: string;
+  code: string;
+  count: number;
+  /** False when a placeholder would change what gets priced, not merely name it. */
+  creatable: boolean;
+  reason: string;
+  create_endpoint: string;
+}
+
+export interface IngestPreviewRow {
+  source_offset: number;
+  rule_key: string | null;
+  rule_name: string | null;
+  decision: string;
+  reason: string;
+  issues: { severity?: string; message: string; path?: string }[];
+  raw: Record<string, unknown>;
+}
+
+export interface IngestPreview {
+  filename: string;
+  headings: string[];
+  mapping: Record<string, string>;
+  unmapped_headings: string[];
+  row_count: number;
+  content_hash: string;
+  counts: Record<string, number>;
+  reasons: { message: string; count: number }[];
+  /** False when the batch would change or withdraw something already live. */
+  safe_to_auto_commit: boolean;
+  notes: string[];
+  parse_rejections: IngestParseRejection[];
+  missing_metadata: IngestMissingMetadata[];
+  sample: IngestPreviewRow[];
+}
+
+export interface IngestBatch {
+  batch_id: string;
+  channel: string;
+  source_system_id: string | null;
+  filename: string | null;
+  import_mode: string;
+  status: string;
+  dry_run: boolean;
+  counts: Record<string, number>;
+  duration_ms: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+  triggered_by_name: string | null;
+  touched_live_pricing: boolean;
+  /** The set this import's rules joined — what makes the batch addressable. */
+  rule_set_id: string | null;
+  rule_set_code: string | null;
+  reasons?: { message: string; count: number }[];
+  error?: string | null;
+  record_decisions?: Record<string, number>;
+  parse_rejections?: IngestParseRejection[];
+  missing_metadata?: IngestMissingMetadata[];
+  created_references?: Record<string, string[]>;
+}
+
+// --- Bulk lifecycle (`/rule-lifecycle`) -------------------------------------
+
+/** Exactly one selector. No arbitrary id list — the backend refuses them. */
+export interface BulkSelector {
+  batch_id?: string;
+  rule_set_id?: string;
+  filters?: Record<string, unknown>;
+  /**
+   * Explicitly ticked rules, by key. Keys rather than ids because the request
+   * body is the audit record — a delete naming rule keys can be reviewed later
+   * by a human, and one naming five UUIDs cannot.
+   */
+  rule_keys?: string[];
+}
+
+export interface BulkRuleOutcome {
+  rule_id: string;
+  rule_key: string;
+  rule_name: string;
+  outcome: string;
+  from_status: string;
+  to_status: string;
+  reason: string;
+  code: string;
+}
+
+/** Blockers grouped by cause. Thirty-two rules failing one check is one fix. */
+export interface BulkBlocker {
+  outcome: string;
+  code: string;
+  reason: string;
+  count: number;
+  examples: string[];
+}
+
+export interface BulkResponse {
+  operation: string;
+  selector: Record<string, unknown>;
+  dry_run: boolean;
+  total: number;
+  eligible: number;
+  applied: number;
+  counts: Record<string, number>;
+  blocked: BulkBlocker[];
+  touched_live_pricing: boolean;
+  requires_approver_role: boolean;
+  caller_can_approve: boolean;
+  rules?: BulkRuleOutcome[];
+  snapshot?: BulkSnapshotRef | null;
+}
+
+export interface BulkSnapshotRef {
+  snapshot_id: string;
+  version: number;
+  status: string;
+  rule_count: number;
+  checksum: string;
+  forced: boolean;
+}
+
+export type BulkJobStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "REJECTED"
+  | "ERROR";
+
+export interface BulkJob {
+  bulk_run_id: string;
+  operation: string;
+  status: BulkJobStatus;
+  selector: Record<string, unknown>;
+  dry_run: boolean;
+  atomic: boolean;
+  force: boolean;
+  comment: string;
+  total: number;
+  processed: number;
+  applied: number;
+  counts: Record<string, number>;
+  blocked: BulkBlocker[];
+  snapshot: BulkSnapshotRef | null;
+  touched_live_pricing: boolean;
+  error: string;
+  error_details: Record<string, unknown> | null;
+  actor_name: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  /** A RUNNING row whose process died. Derived by the backend, not stored. */
+  stale: boolean;
+  percent: number | null;
+}
+
+// --- Snapshot detail --------------------------------------------------------
+//
+// A snapshot is the answer to "what was rating on the 14th", so its detail page
+// is where an operator goes when a charge is disputed. Every shape here exists
+// to answer one question they arrive with: what is in it, what changed, is it
+// safe, who does it touch, and in what order does it run.
+
+/** A rule as the engine will actually walk it — compiled, not authored. */
+export interface ExecutableRule {
+  id: string;
+  rule_id: string;
+  rule_key: string;
+  rule_version: number;
+  rule_name: string;
+  rule_type: string;
+  execution_stage: string;
+  stage_order: number;
+  priority: number;
+  specificity: number;
+  stacking_policy: string;
+  conflict_group: string | null;
+  effective_from: string;
+  effective_to: string | null;
+  currency_code: string | null;
+  signature: string;
+  dimension_sets: Record<string, unknown>;
+  predicates: unknown[];
+  actions: unknown[];
+}
+
+export interface CompileReport {
+  snapshot_id: string;
+  version: number;
+  status: string;
+  checksum: string;
+  rule_count: number;
+  compiled_by: string | null;
+  compiled_at: string | null;
+  /** True when it was compiled past its own blocking issues. */
+  forced: boolean;
+  error_count: number;
+  warning_count: number;
+  safe_to_activate: boolean;
+  grouped_issues: {
+    code: string;
+    severity: string;
+    count: number;
+    message: string;
+    hint?: string;
+    examples?: string[];
+  }[];
+  issues: unknown[];
+  stats: Record<string, unknown>;
+}
+
+export interface StageGroup {
+  stage: string;
+  stage_order: number;
+  rule_count: number;
+  rules: Record<string, unknown>[];
+}
+
+/** Which dimension values the snapshot reaches. Wildcards counted separately —
+ *  a rule matching every zone is not the same as one naming forty. */
+export interface Reach {
+  dimension: string;
+  label: string;
+  values: string[];
+  wildcard_rules: number;
+}
+
+/** Measured against rated traffic, not estimated. `has_traffic` false means
+ *  there was nothing in the window to measure, which is not the same as zero. */
+export interface TrafficImpact {
+  window_days: number;
+  from_date: string;
+  to_date: string;
+  has_traffic: boolean;
+  rated_events: number;
+  affected_events: number;
+  distinct_subscribers: number;
+  affected_charge: string;
+  currency: string;
+  top_rules: Record<string, unknown>[];
+}
+
+export interface SnapshotImpact {
+  snapshot_id: string;
+  version: number;
+  rule_count: number;
+  reach: Reach[];
+  traffic: TrafficImpact | null;
+  changed_rule_keys: string[];
+  compared_with_version: number | null;
+  note: string;
 }

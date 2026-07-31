@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   AlertTriangle,
@@ -288,11 +288,23 @@ function SnapshotsPage() {
                     key={s.id}
                     className="hover:bg-muted/30 transition-colors"
                   >
-                    <td className="px-4 py-3 font-medium text-foreground">
-                      v{s.version}
+                    <td className="px-4 py-3 font-medium">
+                      <Link
+                        to="/rating/snapshots/$snapshotId"
+                        params={{ snapshotId: s.id }}
+                        className="text-foreground hover:text-primary transition-colors"
+                      >
+                        v{s.version}
+                      </Link>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {s.name}
+                    <td className="px-4 py-3">
+                      <Link
+                        to="/rating/snapshots/$snapshotId"
+                        params={{ snapshotId: s.id }}
+                        className="text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        {s.name}
+                      </Link>
                     </td>
                     <td className="px-4 py-3">
                       <span

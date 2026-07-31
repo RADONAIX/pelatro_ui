@@ -9,8 +9,7 @@ pricing defect rather than the modelling defect it is.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time
-from decimal import Decimal
+from datetime import date, time
 
 import pytest
 

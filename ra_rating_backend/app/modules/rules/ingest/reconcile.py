@@ -93,6 +93,13 @@ def decide(
         return Outcome(Decision.NEW, rule_key)
 
     rule_id, stored_hash = existing
+    if cache.rule_statuses.get(rule_key) == "RETIRED":
+        return Outcome(
+            Decision.CHANGED,
+            rule_key,
+            rule_id,
+            reason="The retired rule was explicitly reintroduced by this import.",
+        )
     if stored_hash and stored_hash == incoming_hash:
         return Outcome(
             Decision.UNCHANGED, rule_key, rule_id,

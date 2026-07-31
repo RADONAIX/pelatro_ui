@@ -108,6 +108,10 @@ class ResolutionCache:
     source_systems: dict[str, str] = field(default_factory=dict)
     #: rule_key → (rule_id, behaviour_hash of the current version)
     rule_index: dict[str, tuple[str, str | None]] = field(default_factory=dict)
+    #: Kept separate so the hot reconciliation tuple remains backward-compatible.
+    #: A retired identity is special: seeing it in a new import means the tariff
+    #: has been reintroduced and must cut a fresh version, even when unchanged.
+    rule_statuses: dict[str, str] = field(default_factory=dict)
     #: (source_system_id, external_ref) → rule_key, for identity-by-vendor-key.
     external_index: dict[tuple[str, str], str] = field(default_factory=dict)
     #: (rule_set_id, rule_id) pairs written during this run, so re-importing a rule
@@ -163,7 +167,7 @@ class ResolutionCache:
         sources = (
             await self.db.execute(select(SourceSystem.code, SourceSystem.id))
         ).all()
-        self.source_systems = {code: ident for code, ident in sources}
+        self.source_systems = dict(sources)
 
     def source_system_id(self, code: str | None) -> str | None:
         if not code:
@@ -185,6 +189,7 @@ class ResolutionCache:
                 CanonicalRule.rule_id,
                 CanonicalRule.source_system_id,
                 CanonicalRule.external_ref,
+                CanonicalRule.status,
                 CanonicalRuleVersion.behaviour_hash,
             )
             .outerjoin(
@@ -193,10 +198,11 @@ class ResolutionCache:
             )
             .where(CanonicalRule.tenant_id == self.tenant_id)
         )
-        for key, rule_id, source_id, external_ref, hash_ in (
+        for key, rule_id, source_id, external_ref, status, hash_ in (
             await self.db.execute(stmt)
         ).all():
             self.rule_index[key] = (rule_id, hash_)
+            self.rule_statuses[key] = status
             if source_id and external_ref:
                 self.external_index[(source_id, external_ref)] = key
         del source_system_id  # every key is loaded; the parameter documents intent
@@ -221,7 +227,7 @@ class ResolutionCache:
                         select(model.code, model.id).where(model.code.in_(outstanding))
                     )
                 ).all()
-                known.update({code: ident for code, ident in rows})
+                known.update(dict(rows))
             absent = {c for c in codes if c not in known}
             if absent:
                 missing[slug] = absent

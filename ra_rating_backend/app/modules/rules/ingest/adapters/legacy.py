@@ -132,7 +132,15 @@ def convert(
         behaviour=DraftBehaviour(
             priority=rule.priority,
             stacking_policy=rule.stacking_policy,
-            conflict_group=rule.conflict_group,
+            # Older rows used NO/NONE as a sentinel for an absent conflict
+            # group. Treating it as a real registry code quarantines an
+            # otherwise valid rule during canonical backfill.
+            conflict_group=(
+                None
+                if str(rule.conflict_group or "").strip().upper()
+                in {"", "NO", "NONE", "N/A", "NULL"}
+                else rule.conflict_group
+            ),
             condition_logic=rule.condition_logic,
             # Every legacy rule is an offline recalculation rule; nothing in the
             # legacy vocabulary can express online session charging, so claiming

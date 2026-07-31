@@ -25,10 +25,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import ConflictError, ValidationFailedError
+from app.modules.mirror import hooks as mirror_hooks
 from app.modules.rules.canonical import fingerprint, projection, specificity
 from app.modules.rules.canonical.base import new_id
 from app.modules.rules.canonical.draft import (
@@ -340,6 +342,7 @@ async def write(
         rule = await db.get(CanonicalRule, rule_id)
         if rule is None:  # pragma: no cover - the index is loaded from this table
             raise ConflictError(f"Rule '{rule_key}' vanished mid-write.")
+        was_retired = rule.status == "RETIRED"
         # A rename is an update to the same logical rule, never a new one.
         rule.rule_name = draft.rule_name
         rule.description = draft.description
@@ -348,6 +351,11 @@ async def write(
         rule.updated_by = actor_id
         if draft.owner:
             rule.owner = draft.owner
+        # RETIRED is terminal for the old version, not a permanent ban on the
+        # stable rule key. Re-importing that key creates a new current version;
+        # only that explicit reintroduction resets the logical rule's status.
+        if was_retired:
+            rule.status = status
         next_version = await _next_version_number(db, rule.rule_id)
 
     # --- Version ------------------------------------------------------------
@@ -425,7 +433,11 @@ async def write(
     )
 
     await db.flush()
+    # Additive mirror. Records an id on the session and returns; the write itself
+    # happens after this request's transaction commits. A no-op when disabled.
+    mirror_hooks.record_rule_version(db, version.rule_version_id)
     cache.rule_index[rule_key] = (rule.rule_id, hash_)
+    cache.rule_statuses[rule_key] = rule.status
     if source_system_id and draft.provenance.external_ref:
         cache.external_index[(source_system_id, draft.provenance.external_ref)] = rule_key
 
@@ -638,6 +650,57 @@ def _write_set_membership(
             )
         )
         cache.written_memberships.add((set_id, rule.rule_id))
+
+
+async def link_to_sets(
+    db: AsyncSession,
+    rule_id: str,
+    set_codes: list[str] | tuple[str, ...],
+    tenant: str,
+    cache: ResolutionCache,
+) -> None:
+    """Join an already-written rule to the sets an import names.
+
+    Called for rules a batch decided were UNCHANGED. Not cutting a version for
+    an unchanged rule is correct — a nightly full dump would otherwise produce
+    four thousand versions a day and bury the three that moved. Membership is a
+    different question: "this rule was in that import" is true whether or not the
+    rule changed, and it is the only thing that makes "approve everything from
+    that import" mean anything.
+
+    Skipping it produced a specific and quiet failure. Re-import an unchanged
+    file, and its brand-new rule set came out empty — so the bulk approve that
+    followed reported success over zero rules, which reads exactly like a batch
+    that was already approved.
+    """
+    if not set_codes:
+        return
+    rule = await db.get(CanonicalRule, rule_id)
+    if rule is None:
+        return
+    for code in set_codes:
+        set_id = cache.rule_sets.get(code)
+        if set_id is None or (set_id, rule_id) in cache.written_memberships:
+            continue
+        existing = await db.scalar(
+            select(RuleSetMember.rule_set_member_id).where(
+                RuleSetMember.rule_set_id == set_id,
+                RuleSetMember.rule_id == rule_id,
+            )
+        )
+        if existing is not None:
+            cache.written_memberships.add((set_id, rule_id))
+            continue
+        db.add(
+            RuleSetMember(
+                tenant_id=tenant,
+                rule_set_id=set_id,
+                rule_id=rule_id,
+                rule_version_id=rule.current_version_id,
+                sequence_number=0,
+            )
+        )
+        cache.written_memberships.add((set_id, rule_id))
 
 
 def _write_lineage(

@@ -6,6 +6,13 @@ import { useT } from "@/lib/i18n";
 import { useActionSpecs, useReferenceOptions } from "@/lib/rating/hooks";
 import type { Action, ActionParamSpec, ActionSpec } from "@/lib/rating/types";
 
+const HIDDEN_AUTHORING_PARAMS = new Set([
+  "per_units",
+  "subsequent_seconds",
+  "decimals",
+  "consume_order",
+]);
+
 // ---------------------------------------------------------------------------
 // Visual action builder. Like the condition builder, every action and every
 // parameter it renders comes from the backend's ACTION_SPECS — so the form for
@@ -211,20 +218,22 @@ export function ActionBuilder({
 
             {spec && spec.params.length > 0 && (
               <div className="mt-3 ml-0 md:ml-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {spec.params.map((p) => (
-                  <ParamField
-                    key={p.key}
-                    param={p}
-                    value={action.params[p.key]}
-                    invalid={hasError(i, p.key)}
-                    onChange={(v) => {
-                      const params = { ...action.params };
-                      if (v === undefined || v === "") delete params[p.key];
-                      else params[p.key] = v;
-                      update(i, { params });
-                    }}
-                  />
-                ))}
+                {spec.params
+                  .filter((p) => !HIDDEN_AUTHORING_PARAMS.has(p.key))
+                  .map((p) => (
+                    <ParamField
+                      key={p.key}
+                      param={p}
+                      value={action.params[p.key]}
+                      invalid={hasError(i, p.key)}
+                      onChange={(v) => {
+                        const params = { ...action.params };
+                        if (v === undefined || v === "") delete params[p.key];
+                        else params[p.key] = v;
+                        update(i, { params });
+                      }}
+                    />
+                  ))}
               </div>
             )}
             {spec && spec.params.length === 0 && (

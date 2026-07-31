@@ -317,6 +317,13 @@ class ListEnvelope(Base):
     offset: int
 
 
+class RuleEstateStats(Base):
+    logical_rules: int
+    total_versions: int
+    pending_approval: int
+    rules_with_errors: int
+
+
 class StatusChange(Base):
     status: str = Field(min_length=1, max_length=16)
     comment: str = ""

@@ -189,6 +189,55 @@ class Settings(BaseSettings):
     actual_charge_time_tolerance_seconds: int = 5
     maximum_retry_count: int = 3
 
+    # --- Which store the compiler reads (plan step M5) ---------------------
+    # LEGACY reads `rating.rules`; CANONICAL reads `ra_rule.*` through the same
+    # `compile_rule`, so the compiled output is comparable field for field.
+    #
+    # Defaults to LEGACY on purpose. Flipping it is a decision about a specific
+    # estate, taken once `scripts/backfill_canonical.py` reports clean parity on
+    # that estate — not a default anybody inherits by upgrading.
+    rule_compile_source: str = "LEGACY"
+
+    # --- Mirror: additive, write-only sync into `rafms_rating_new` ----------
+    # A SECOND database that receives a copy of the rule and metadata rows this
+    # service writes. Nothing is ever read back from it, and nothing about the
+    # primary write path changes: the mirror runs after the primary transaction
+    # has already committed, and a mirror failure is logged, not raised.
+    #
+    # Disabled by default. With `mirror_enabled` false the mirror engine is never
+    # constructed and every hook returns on its first line, so a deployment that
+    # does not set these values behaves exactly as it did before the feature
+    # existed — which is what makes "no behavioural change" checkable rather than
+    # merely asserted.
+    mirror_enabled: bool = False
+    mirror_db_host: str = "localhost"
+    mirror_db_port: int = 5432
+    mirror_db_name: str = "rafms_rating_new"
+    mirror_db_user: str = "postgres"
+    mirror_db_password: str = "postgres"
+    mirror_db_schema: str = "canonical_rating"
+    mirror_db_pool_size: int = 3
+    mirror_db_max_overflow: int = 2
+    #: Mirror the subscriber-plane tables (`subscriber_offer`,
+    #: `subscriber_bundle_balance`). Separate from `mirror_enabled` because those
+    #: two are fed by the rating execution engine rather than by rule authoring,
+    #: and both carry a foreign key into `canonical_rating.subscriber` — a table
+    #: this platform has no source for. Turning this on without that table
+    #: populated produces nothing but foreign-key warnings.
+    mirror_subscriber_enabled: bool = False
+    #: Which rule store feeds the mirror: LEGACY (`rating.rules`), CANONICAL
+    #: (`ra_rule.*`), BOTH, or AUTO.
+    #:
+    #: Both models are live at once during the R4 cut-over, and they describe the
+    #: same estate — mirroring both puts each rule in the target twice under two
+    #: different `rule_id`s, which reads as a duplicated tariff rather than as two
+    #: views of one.
+    #:
+    #: AUTO follows `rule_compile_source`, so the mirror reflects whichever store
+    #: the compiler treats as authoritative. That is the right default: the target
+    #: should agree with what actually prices traffic.
+    mirror_rule_source: Literal["AUTO", "LEGACY", "CANONICAL", "BOTH"] = "AUTO"
+
     # --- Rule engine limits ------------------------------------------------
     max_conditions_per_rule: int = 50
     max_actions_per_rule: int = 25
@@ -215,6 +264,20 @@ class Settings(BaseSettings):
                 host=self.rating_db_host,
                 port=self.rating_db_port,
                 path=self.rating_db_name,
+            )
+        )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def mirror_database_url(self) -> str:
+        return str(
+            PostgresDsn.build(
+                scheme="postgresql+asyncpg",
+                username=self.mirror_db_user,
+                password=self.mirror_db_password,
+                host=self.mirror_db_host,
+                port=self.mirror_db_port,
+                path=self.mirror_db_name,
             )
         )
 

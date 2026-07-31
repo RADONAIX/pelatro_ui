@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.errors import ConflictError, NotFoundError, ValidationFailedError
 from app.core.logging import get_logger
-from app.modules.compiler import compiler, conflicts
+from app.modules.compiler import compiler, conflicts, sources
 from app.modules.compiler.constants import SnapshotStatus
 from app.modules.compiler.models import ExecutableRule, RuleSnapshot
 from app.modules.compiler.schemas import (
@@ -29,8 +29,30 @@ from app.modules.rules.schemas import ValidationIssue
 log = get_logger("compiler")
 
 
-async def _load_rules(db: AsyncSession, rule_set_id: str | None) -> list[Rule]:
-    """The latest version of every rule eligible for a snapshot."""
+async def _load_rules(
+    db: AsyncSession,
+    rule_set_id: str | None,
+    *,
+    source: str | None = None,
+) -> list[Rule] | list[Any]:
+    """The latest version of every rule eligible for a snapshot.
+
+    Reads whichever store `RULE_COMPILE_SOURCE` names. The canonical branch
+    returns `compilerview.RuleView` objects, which present exactly the attributes
+    `compile_rule` reads — so this is a change of *source*, not of compiler, and
+    the parity gate comparing the two remains a statement about the data.
+    """
+    selected = (source or sources.configured_source()).upper()
+    if selected == sources.CompileSource.CANONICAL:
+        return await sources.load_canonical(db, rule_set_id)
+    return await _load_legacy_rules(db, rule_set_id)
+
+
+async def _load_legacy_rules(
+    db: AsyncSession, rule_set_id: str | None
+) -> list[Rule]:
+    """Unchanged since before M5. Left exactly as it was so the legacy path
+    cannot drift while both stores are live."""
     stmt = (
         select(Rule)
         .options(selectinload(Rule.conditions), selectinload(Rule.actions))
@@ -58,9 +80,13 @@ async def _load_rules(db: AsyncSession, rule_set_id: str | None) -> list[Rule]:
 
 
 async def validate_rule_set(
-    db: AsyncSession, *, rule_set_id: str | None, include_coverage: bool = True
+    db: AsyncSession,
+    *,
+    rule_set_id: str | None,
+    include_coverage: bool = True,
+    source: str | None = None,
 ) -> RuleSetValidationReport:
-    rules = await _load_rules(db, rule_set_id)
+    rules = await _load_rules(db, rule_set_id, source=source)
 
     structural: list[ValidationIssue] = []
     for rule in rules:
@@ -107,23 +133,34 @@ async def compile_snapshot(
     force: bool,
     actor_id: str,
     actor_name: str,
+    source: str | None = None,
+    carry_forward_active: bool = False,
 ) -> RuleSnapshot:
     started = time.perf_counter()
-    rules = await _load_rules(db, rule_set_id)
+    selected = (source or sources.configured_source()).upper()
+    canonical = selected == sources.CompileSource.CANONICAL
+    rules = await _load_rules(db, rule_set_id, source=selected)
     if not rules:
         raise ValidationFailedError(
             "There are no approved rules to compile.",
             details={"hint": "Approve at least one rule first — drafts are not compiled."},
         )
 
-    report = await validate_rule_set(db, rule_set_id=rule_set_id)
+    report = await validate_rule_set(
+        db, rule_set_id=rule_set_id, source=selected
+    )
     if report.error_count and not force:
         raise ValidationFailedError(
             f"The rule set has {report.error_count} blocking issue(s).",
             details={
                 "error_count": report.error_count,
                 "issues": [
-                    i.model_dump()
+                    # mode="json" so the enum renders as "ERROR" rather than
+                    # <ValidationSeverity.ERROR: 'ERROR'> in the structured log.
+                    # The HTTP body was always fine — StrEnum encodes as its
+                    # value — but a log line that looks like a serialisation bug
+                    # costs somebody twenty minutes.
+                    i.model_dump(mode="json")
                     for i in (report.structural + report.conflicts)
                     if i.severity == ValidationSeverity.ERROR
                 ][:25],
@@ -140,7 +177,11 @@ async def compile_snapshot(
         version=next_version,
         name=name,
         description=description,
-        rule_set_id=rule_set_id,
+        # A canonical set lives in `ra_rule.rule_set`; the legacy column's FK
+        # points at `rating.rule_sets`, so the id goes in whichever column can
+        # actually hold it. Both are nullable, and exactly one is ever set.
+        rule_set_id=None if canonical else rule_set_id,
+        canonical_rule_set_id=rule_set_id if canonical else None,
         status=SnapshotStatus.PUBLISHED.value,
         effective_from=effective_from,
         effective_to=effective_to,
@@ -164,7 +205,40 @@ async def compile_snapshot(
         except compiler.CompileError as exc:
             raise ValidationFailedError(str(exc)) from exc
 
+    if carry_forward_active:
+        # Activating an imported set is additive. A snapshot is the whole live
+        # estate, not merely the delta in the uploaded file. Copy the immutable
+        # executable rows from the current snapshot and let newly compiled rule
+        # keys replace matching old ones.
+        selected_keys = {rule.rule_key for rule in executables}
+        current = await active_snapshot(db)
+        if current is not None:
+            carried = (
+                (
+                    await db.execute(
+                        select(ExecutableRule).where(
+                            ExecutableRule.snapshot_id == current.id,
+                            ExecutableRule.rule_key.notin_(selected_keys),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            executables.extend(
+                _copy_executable(rule, snapshot.id) for rule in carried
+            )
+
     db.add_all(executables)
+
+    # The initial window was calculated from the imported delta. Once the live
+    # estate is carried forward, the snapshot window must describe the complete
+    # executable set.
+    snapshot.effective_from = min(rule.effective_from for rule in executables)
+    ends = [rule.effective_to for rule in executables]
+    snapshot.effective_to = (
+        None if any(end is None for end in ends) else max(end for end in ends if end)
+    )
 
     snapshot.rule_count = len(executables)
     snapshot.checksum = compiler.checksum(executables)
@@ -181,9 +255,16 @@ async def compile_snapshot(
 
     # Mark the source rules COMPILED so the catalogue shows what is in a
     # snapshot without joining through executable_rules.
-    for rule in rules:
-        if rule.status == RuleStatus.APPROVED.value:
-            rule.status = RuleStatus.COMPILED.value
+    #
+    # A `RuleView` is a read projection over the canonical tables, not a mapped
+    # row, so it is promoted through its own model rather than by assignment —
+    # writing to the view would update nothing and report success.
+    if canonical:
+        await sources.mark_compiled(db, [r.rule_key for r in rules], tenant_id=None)
+    else:
+        for rule in rules:
+            if rule.status == RuleStatus.APPROVED.value:
+                rule.status = RuleStatus.COMPILED.value
 
     await db.flush()
     await db.refresh(snapshot)
@@ -195,6 +276,16 @@ async def compile_snapshot(
         ms=stats["compile_ms"],
     )
     return snapshot
+
+
+def _copy_executable(rule: ExecutableRule, snapshot_id: str) -> ExecutableRule:
+    """Copy one immutable executable row into a replacement snapshot."""
+    values = {
+        column.name: getattr(rule, column.name)
+        for column in ExecutableRule.__table__.columns
+        if column.name not in {"id", "snapshot_id", "created_at"}
+    }
+    return ExecutableRule(snapshot_id=snapshot_id, **values)
 
 
 async def get_snapshot(db: AsyncSession, snapshot_id: str) -> RuleSnapshot:

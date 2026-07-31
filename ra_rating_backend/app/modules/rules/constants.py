@@ -88,6 +88,16 @@ class RuleType(StrEnum):
     TAX = "TAX"
     ROUNDING = "ROUNDING"
     ZERO_RATE = "ZERO_RATE"
+    # --- Canonical-rating synonyms (2026-07) ---------------------------------
+    # The operator's canonical_rating model names the same families differently.
+    # Added as first-class selectable types so a rule authored in that
+    # vocabulary stores and validates like any other; each maps onto an
+    # EXISTING stage, so the compiler and the charging sequence are untouched.
+    USAGE_RATE = "USAGE_RATE"
+    TIERED_USAGE_RATE = "TIERED_USAGE_RATE"
+    PERCENTAGE_DISCOUNT = "PERCENTAGE_DISCOUNT"
+    FREE_UNIT = "FREE_UNIT"
+    PERCENTAGE_TAX = "PERCENTAGE_TAX"
 
 
 RULE_TYPE_STAGE: dict[str, str] = {
@@ -102,6 +112,11 @@ RULE_TYPE_STAGE: dict[str, str] = {
     RuleType.TAX: ExecutionStage.TAX,
     RuleType.ROUNDING: ExecutionStage.ROUNDING,
     RuleType.ZERO_RATE: ExecutionStage.BASE_CHARGE,
+    RuleType.USAGE_RATE: ExecutionStage.BASE_CHARGE,
+    RuleType.TIERED_USAGE_RATE: ExecutionStage.BASE_CHARGE,
+    RuleType.PERCENTAGE_DISCOUNT: ExecutionStage.DISCOUNT,
+    RuleType.FREE_UNIT: ExecutionStage.BUNDLE,
+    RuleType.PERCENTAGE_TAX: ExecutionStage.TAX,
 }
 
 
@@ -314,6 +329,39 @@ RULE_ATTRIBUTES: tuple[RuleAttribute, ...] = (
                   description="From the holiday calendar, not the weekday number: "
                               "a public holiday priced as a Tuesday puts a variance "
                               "on every call that day."),
+
+    # --- Canonical-rating attribute vocabulary (2026-07) ---------------------
+    # The operator's own attribute names, offered verbatim in the builder.
+    # Where a legacy attribute already covers the fact under another name
+    # (duration_seconds / duration_sec), both stay selectable; the engine's
+    # fact sheet aliases the new name onto the same value.
+    RuleAttribute("destination_country", "Destination Country", DataType.STRING,
+                  "Destination", specificity=25,
+                  description="Resolved destination country."),
+    RuleAttribute("destination_operator", "Destination Operator", DataType.STRING,
+                  "Destination", specificity=40,
+                  description="Resolved destination operator."),
+    RuleAttribute("offer_code", "Offer Code", DataType.REFERENCE, "Service",
+                  reference="offers", specificity=55,
+                  description="Active subscriber offer code."),
+    RuleAttribute("bundle_code", "Bundle Code", DataType.REFERENCE, "Usage",
+                  reference="bundles", specificity=40,
+                  description="Applicable subscriber bundle code."),
+    RuleAttribute("bundle_remaining", "Bundle Remaining", DataType.NUMBER, "Usage",
+                  specificity=15,
+                  description="Remaining bundle balance."),
+    RuleAttribute("tax_country", "Tax Country", DataType.STRING, "Subscriber",
+                  specificity=20,
+                  description="Tax jurisdiction country."),
+    RuleAttribute("tax_exempt", "Tax Exempt", DataType.BOOLEAN, "Subscriber",
+                  specificity=20,
+                  description="Whether the subscriber is tax exempt."),
+    RuleAttribute("duration_sec", "Duration (sec)", DataType.NUMBER, "Usage",
+                  specificity=15,
+                  description="Voice event duration in seconds."),
+    RuleAttribute("volume_kb", "Volume (KB)", DataType.NUMBER, "Usage",
+                  specificity=15,
+                  description="Data event volume in kilobytes."),
 )
 
 ATTRIBUTE_BY_KEY: dict[str, RuleAttribute] = {a.key: a for a in RULE_ATTRIBUTES}
@@ -339,6 +387,19 @@ class ActionType(StrEnum):
     SELECT_TARIFF = "SELECT_TARIFF"
     ADD_SURCHARGE = "ADD_SURCHARGE"
     SET_ZERO_CHARGE = "SET_ZERO_CHARGE"
+    # --- Canonical-rating action vocabulary (2026-07) ------------------------
+    # The operator's own 14-action registry. Added so the authoring UI can offer
+    # exactly those codes; each sits at an existing stage.
+    SET_RATING_UNIT = "SET_RATING_UNIT"
+    SET_ROUNDING = "SET_ROUNDING"
+    CONSUME_ALLOWANCE = "CONSUME_ALLOWANCE"
+    SET_FREE_QUANTITY = "SET_FREE_QUANTITY"
+    APPLY_PERCENT_DISCOUNT = "APPLY_PERCENT_DISCOUNT"
+    APPLY_FIXED_DISCOUNT = "APPLY_FIXED_DISCOUNT"
+    APPLY_PERCENT_SURCHARGE = "APPLY_PERCENT_SURCHARGE"
+    APPLY_FIXED_SURCHARGE = "APPLY_FIXED_SURCHARGE"
+    APPLY_PERCENT_TAX = "APPLY_PERCENT_TAX"
+    APPLY_FIXED_TAX = "APPLY_FIXED_TAX"
 
 
 @dataclass(frozen=True)
@@ -485,6 +546,84 @@ ACTION_SPECS: tuple[ActionSpec, ...] = (
         (),
         "Forces the expected charge to zero — free calls, promotional numbers, emergency.",
     ),
+    # --- Canonical-rating action vocabulary (2026-07) ------------------------
+    # The operator's own registry, offered verbatim in the builder. Where an
+    # existing action already covers the behaviour (SET_RATE, SET_PULSE,
+    # SET_MINIMUM_CHARGE…) the existing code is kept; these are only the codes
+    # that have no legacy spelling.
+    ActionSpec(
+        ActionType.SET_RATING_UNIT, "Set Rating Unit", ExecutionStage.BASE_CHARGE,
+        (
+            ActionParam("unit", "Unit", DataType.ENUM, True,
+                        values=("SECOND", "MINUTE", "MESSAGE", "BYTE", "KILOBYTE",
+                                "MEGABYTE", "EVENT")),
+            ActionParam("per_units", "Per units", DataType.NUMBER, False,
+                        description="Defaults to 1. e.g. rate per 60 SECOND."),
+        ),
+        "Defines the charging unit such as seconds or KB.",
+    ),
+    ActionSpec(
+        ActionType.SET_ROUNDING, "Set Pulse Rounding", ExecutionStage.ROUNDING,
+        (
+            ActionParam("mode", "Mode", DataType.ENUM, False,
+                        values=("HALF_UP", "HALF_EVEN", "CEILING", "FLOOR", "TRUNCATE")),
+            ActionParam("decimals", "Decimals", DataType.NUMBER, False),
+        ),
+        "Defines ceiling, floor or nearest rounding.",
+    ),
+    ActionSpec(
+        ActionType.CONSUME_ALLOWANCE, "Consume Allowance", ExecutionStage.BUNDLE,
+        (
+            ActionParam("bundle_code", "Bundle", DataType.REFERENCE, True,
+                        reference="bundles"),
+            ActionParam("consume_order", "Consume order", DataType.NUMBER, False,
+                        description="Lower consumes first when several bundles match."),
+        ),
+        "Consumes free units from a balance bucket.",
+    ),
+    ActionSpec(
+        ActionType.SET_FREE_QUANTITY, "Set Free Quantity", ExecutionStage.BUNDLE,
+        (
+            ActionParam("quantity", "Quantity", DataType.NUMBER, True,
+                        description="Maximum free quantity, in the rate's unit."),
+            ActionParam("unit", "Unit", DataType.ENUM, False,
+                        values=("SECOND", "MINUTE", "MESSAGE", "BYTE", "KILOBYTE",
+                                "MEGABYTE", "EVENT")),
+        ),
+        "Defines the maximum free quantity.",
+    ),
+    ActionSpec(
+        ActionType.APPLY_PERCENT_DISCOUNT, "Apply Percentage Discount",
+        ExecutionStage.DISCOUNT,
+        (ActionParam("percentage", "Percentage", DataType.NUMBER, True),),
+        "Applies a percentage discount.",
+    ),
+    ActionSpec(
+        ActionType.APPLY_FIXED_DISCOUNT, "Apply Fixed Discount", ExecutionStage.DISCOUNT,
+        (ActionParam("amount", "Amount", DataType.NUMBER, True), _CURRENCY),
+        "Applies a fixed monetary discount.",
+    ),
+    ActionSpec(
+        ActionType.APPLY_PERCENT_SURCHARGE, "Apply Percentage Surcharge",
+        ExecutionStage.SURCHARGE,
+        (ActionParam("percentage", "Percentage", DataType.NUMBER, True),),
+        "Applies a percentage surcharge.",
+    ),
+    ActionSpec(
+        ActionType.APPLY_FIXED_SURCHARGE, "Apply Fixed Surcharge", ExecutionStage.SURCHARGE,
+        (ActionParam("amount", "Amount", DataType.NUMBER, True), _CURRENCY),
+        "Applies a fixed monetary surcharge.",
+    ),
+    ActionSpec(
+        ActionType.APPLY_PERCENT_TAX, "Apply Percentage Tax", ExecutionStage.TAX,
+        (ActionParam("percentage", "Percentage", DataType.NUMBER, True),),
+        "Applies a percentage tax.",
+    ),
+    ActionSpec(
+        ActionType.APPLY_FIXED_TAX, "Apply Fixed Tax", ExecutionStage.TAX,
+        (ActionParam("amount", "Amount", DataType.NUMBER, True), _CURRENCY),
+        "Applies a fixed monetary tax.",
+    ),
 )
 
 ACTION_BY_TYPE: dict[str, ActionSpec] = {a.type: a for a in ACTION_SPECS}
@@ -508,6 +647,25 @@ REQUIRED_ACTION_FOR_TYPE: dict[str, tuple[str, ...]] = {
     RuleType.SURCHARGE: (ActionType.ADD_SURCHARGE,),
     RuleType.TARIFF_SELECTION: (ActionType.SELECT_TARIFF,),
     RuleType.ZERO_RATE: (ActionType.SET_ZERO_CHARGE,),
+    # Canonical-rating synonym types. Each accepts the operator's own action
+    # spelling AND the legacy one, so neither vocabulary blocks the other.
+    RuleType.USAGE_RATE: (ActionType.SET_RATE,),
+    RuleType.TIERED_USAGE_RATE: (ActionType.SET_TIERED_RATE,),
+    RuleType.PERCENTAGE_DISCOUNT: (
+        ActionType.APPLY_PERCENT_DISCOUNT,
+        ActionType.APPLY_FIXED_DISCOUNT,
+        ActionType.APPLY_DISCOUNT,
+    ),
+    RuleType.FREE_UNIT: (
+        ActionType.CONSUME_ALLOWANCE,
+        ActionType.SET_FREE_QUANTITY,
+        ActionType.CONSUME_BUNDLE,
+    ),
+    RuleType.PERCENTAGE_TAX: (
+        ActionType.APPLY_PERCENT_TAX,
+        ActionType.APPLY_FIXED_TAX,
+        ActionType.APPLY_TAX,
+    ),
 }
 
 

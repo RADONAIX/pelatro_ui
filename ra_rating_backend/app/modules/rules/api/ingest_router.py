@@ -32,6 +32,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.core.deps import DbSession, PageParams, principal_with, require
 from app.core.errors import NotFoundError, ValidationFailedError
 from app.core.rbac import RatingPermKey
@@ -40,7 +41,10 @@ from app.modules.rules.canonical.lineage import (
     RuleIngestionBatch,
     RuleIngestionRecord,
 )
+from app.modules.rules.canonical.rule import CanonicalRule
+from app.modules.rules.canonical.sets import CanonicalRuleSet, RuleSetMember
 from app.modules.rules.ingest import files, kernel, references, resolver
+from app.modules.rules.ingest import sets as import_sets
 from app.modules.rules.ingest.reconcile import Decision, ImportMode
 
 router = APIRouter(prefix="/rule-ingest", tags=["rule-ingest"])
@@ -161,6 +165,14 @@ async def create_batch(
     default_currency: str | None = Form(None),
     effective_from: date | None = Form(None),
     dry_run: bool = Form(False),
+    rule_set_id: str | None = Form(
+        None, description="Join this import's rules to an existing rule set."
+    ),
+    create_rule_set: bool = Form(
+        False,
+        description="Create a rule set for this import, so it can be validated, "
+                    "approved and rolled back as one unit.",
+    ),
     create_missing_references: bool = Form(
         False,
         description="Create placeholder catalogue entries for codes this file "
@@ -199,6 +211,19 @@ async def create_batch(
         default_charging_mode=default_charging_mode,
         default_currency=default_currency,
     )
+    # Created before the kernel runs, so the resolver picks it up and every rule
+    # the batch writes joins it.
+    rule_set = await import_sets.resolve(
+        db,
+        tenant_id=principal.tenant_id or settings.default_tenant_id,
+        rule_set_id=rule_set_id,
+        create=create_rule_set,
+        source_system_id=None,
+        source_code=source_system_code,
+        filename=file.filename,
+        actor_id=principal.id,
+    )
+
     missing = await _survey(db, parsed.drafts)
     created: dict[str, list[str]] = {}
     if create_missing_references and missing:
@@ -222,14 +247,133 @@ async def create_batch(
         content_hash=parsed.content_hash,
         dry_run=dry_run,
         raw_records=parsed.raw,
+        rule_set_code=rule_set.code if rule_set else None,
+        # The validation already happened during ingestion. Landing a clean rule
+        # at DRAFT would make the operator's first bulk action a re-validation
+        # that changes nothing.
+        promote_clean=True,
     )
+    if rule_set is not None and not dry_run:
+        await _ensure_batch_set_membership(
+            db,
+            batch_id=result.batch_id,
+            rule_set_id=rule_set.rule_set_id,
+            tenant_id=principal.tenant_id or settings.default_tenant_id,
+        )
     if dry_run:
         detail = _detail_from_result(result, parsed)
     else:
         detail = await _detail(db, result.batch_id)
     detail.missing_metadata = _missing_out(missing)
     detail.created_references = created
+    if rule_set is not None:
+        detail.rule_set_id = rule_set.rule_set_id
+        detail.rule_set_code = rule_set.code
     return detail
+
+
+async def _ensure_batch_set_membership(
+    db: DbSession, *, batch_id: str, rule_set_id: str, tenant_id: str
+) -> None:
+    """Link an idempotently replayed batch to the set created for this request.
+
+    The ingestion kernel deliberately returns the original completed batch when
+    identical content is posted again. The HTTP endpoint has already created a
+    fresh import set by then, so the replay bypasses the writer calls that would
+    normally create memberships. Rebuild them from the batch's forensic records;
+    for an unchanged row, pin the rule's current version.
+    """
+    rows = (
+        await db.execute(
+            select(
+                RuleIngestionRecord.rule_id,
+                RuleIngestionRecord.rule_version_id,
+                CanonicalRule.current_version_id,
+            )
+            .join(CanonicalRule, CanonicalRule.rule_id == RuleIngestionRecord.rule_id)
+            .where(
+                RuleIngestionRecord.batch_id == batch_id,
+                RuleIngestionRecord.rule_id.isnot(None),
+                CanonicalRule.tenant_id == tenant_id,
+            )
+        )
+    ).all()
+    if not rows:
+        return
+
+    existing = set(
+        (
+            await db.execute(
+                select(RuleSetMember.rule_id).where(
+                    RuleSetMember.rule_set_id == rule_set_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for rule_id, imported_version_id, current_version_id in rows:
+        if rule_id in existing:
+            continue
+        db.add(
+            RuleSetMember(
+                tenant_id=tenant_id,
+                rule_set_id=rule_set_id,
+                rule_id=rule_id,
+                rule_version_id=imported_version_id or current_version_id,
+                sequence_number=0,
+            )
+        )
+        existing.add(rule_id)
+    await db.flush()
+
+
+@router.get(
+    "/rule-sets",
+    response_model=list[s.RuleSetOut],
+    summary="Canonical rule sets an import can join",
+    dependencies=[Depends(_view)],
+)
+async def list_rule_sets(db: DbSession, limit: int = 100) -> list[s.RuleSetOut]:
+    """The sets `/rule-ingest/batches` will actually accept.
+
+    Ordered newest first: the set an operator wants to add to is almost always
+    one they made recently, and a code-sorted list buries it under a year of
+    vendor imports.
+    """
+    counts = dict(
+        (
+            await db.execute(
+                select(RuleSetMember.rule_set_id, func.count()).group_by(
+                    RuleSetMember.rule_set_id
+                )
+            )
+        ).all()
+    )
+    rows = (
+        (
+            await db.execute(
+                select(CanonicalRuleSet)
+                .order_by(CanonicalRuleSet.created_at.desc())
+                .limit(min(limit, 500))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        s.RuleSetOut(
+            rule_set_id=r.rule_set_id,
+            code=r.code,
+            name=r.name,
+            description=r.description or "",
+            set_type=r.set_type,
+            status=getattr(r, "status", "") or "",
+            rule_count=int(counts.get(r.rule_set_id, 0)),
+            created_at=r.created_at,
+        )
+        for r in rows
+    ]
 
 
 @router.get(

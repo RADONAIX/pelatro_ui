@@ -17,9 +17,9 @@ import { Select } from "@/components/ui-kit/Select";
 import { useT } from "@/lib/i18n";
 import {
   useCanEditRules,
+  useCanonicalRules,
+  useCanonicalRuleStats,
   useRatingEnums,
-  useRatingOverview,
-  useRules,
 } from "@/lib/rating/hooks";
 import {
   RatingEmpty,
@@ -27,6 +27,7 @@ import {
   RatingLoading,
 } from "@/components/rating/RatingState";
 import { RuleStatusBadge } from "@/components/rating/RuleStatusBadge";
+import { BulkDeleteBar } from "@/components/rating/BulkDeleteBar";
 
 export const Route = createFileRoute("/rating/rules/")({
   component: RuleCataloguePage,
@@ -38,13 +39,24 @@ function RuleCataloguePage() {
   const t = useT();
   const canEdit = useCanEditRules();
   const { data: enums } = useRatingEnums();
-  const { data: overview } = useRatingOverview();
+  const { data: estate } = useCanonicalRuleStats();
 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [serviceType, setServiceType] = useState("");
   const [ruleType, setRuleType] = useState("");
   const [page, setPage] = useState(0);
+  // Ticked rules, by key rather than by id — the key is what the bulk endpoint
+  // takes, and what makes the resulting audit entry readable.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  const toggle = (key: string) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const filters = {
     search,
@@ -54,7 +66,8 @@ function RuleCataloguePage() {
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   };
-  const { data, isLoading, error, refetch, isFetching } = useRules(filters);
+  const { data, isLoading, error, refetch, isFetching } =
+    useCanonicalRules(filters);
 
   // Any filter change invalidates the current page number — otherwise a
   // narrowed result set lands the user on an empty page 4.
@@ -65,8 +78,6 @@ function RuleCataloguePage() {
 
   const total = data?.total ?? 0;
   const lastPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
-  const estate = overview?.rule_estate;
-
   return (
     <AppShell>
       <PageHeader
@@ -99,7 +110,7 @@ function RuleCataloguePage() {
           <StatTile
             icon={Layers}
             label={t("Versions")}
-            value={String(estate.total_rules)}
+            value={String(estate.total_versions)}
           />
           <StatTile
             icon={ShieldCheck}
@@ -193,6 +204,33 @@ function RuleCataloguePage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-left">
+                    {canEdit && (
+                      <th className="w-10 px-4 py-2.5">
+                        <input
+                          type="checkbox"
+                          aria-label={t("Select every rule on this page")}
+                          className="rounded border-border"
+                          checked={
+                            data.items.length > 0 &&
+                            data.items.every((r) => picked.has(r.rule_key))
+                          }
+                          onChange={(e) =>
+                            setPicked((current) => {
+                              const next = new Set(current);
+                              // Only this page: a header tick that silently
+                              // selected 4,000 unseen rules would be the exact
+                              // UI bug that makes bulk actions dangerous.
+                              data.items.forEach((r) =>
+                                e.target.checked
+                                  ? next.add(r.rule_key)
+                                  : next.delete(r.rule_key),
+                              );
+                              return next;
+                            })
+                          }
+                        />
+                      </th>
+                    )}
                     <Th>{t("Rule")}</Th>
                     <Th>{t("Type")}</Th>
                     <Th>{t("Service")}</Th>
@@ -206,25 +244,38 @@ function RuleCataloguePage() {
                 <tbody className="divide-y divide-border">
                   {data.items.map((rule) => (
                     <tr
-                      key={rule.id}
-                      className="hover:bg-muted/30 transition-colors"
+                      key={rule.rule_id}
+                      className={`hover:bg-muted/30 transition-colors ${
+                        picked.has(rule.rule_key) ? "bg-primary/5" : ""
+                      }`}
                     >
+                      {canEdit && (
+                        <td className="px-4 py-3 align-top">
+                          <input
+                            type="checkbox"
+                            aria-label={`${t("Select")} ${rule.rule_key}`}
+                            className="rounded border-border"
+                            checked={picked.has(rule.rule_key)}
+                            onChange={() => toggle(rule.rule_key)}
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-3 align-top">
                         <Link
                           to="/rating/rules/$ruleId"
-                          params={{ ruleId: rule.id }}
+                          params={{ ruleId: rule.rule_id }}
                           className="font-medium text-foreground hover:text-primary transition-colors"
                         >
-                          {rule.name}
+                          {rule.rule_name}
                         </Link>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="font-mono text-[11px] text-muted-foreground">
                             {rule.rule_key}
                           </span>
                           <span className="text-[11px] text-muted-foreground">
-                            v{rule.version}
+                            v{rule.version_number ?? 1}
                           </span>
-                          {rule.has_errors && (
+                          {rule.validation_state === "ERROR" && (
                             <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-destructive/10 text-destructive border-destructive/20">
                               {t("errors")}
                             </span>
@@ -232,9 +283,11 @@ function RuleCataloguePage() {
                         </div>
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <div className="text-foreground">{rule.rule_type}</div>
+                        <div className="text-foreground">
+                          {rule.rule_type_code}
+                        </div>
                         <div className="text-[11px] text-muted-foreground">
-                          {rule.execution_stage}
+                          {rule.stage_code}
                         </div>
                       </td>
                       <td className="px-4 py-3 align-top text-muted-foreground">
@@ -244,10 +297,10 @@ function RuleCataloguePage() {
                         <RuleStatusBadge status={rule.status} />
                       </td>
                       <td className="px-4 py-3 align-top text-right tabular-nums text-muted-foreground">
-                        {rule.priority}
+                        {rule.priority ?? "—"}
                       </td>
                       <td className="px-4 py-3 align-top text-right tabular-nums text-muted-foreground">
-                        {rule.specificity}
+                        {rule.specificity_score ?? "—"}
                       </td>
                       <td className="px-4 py-3 align-top text-right tabular-nums text-muted-foreground">
                         {rule.condition_count}c / {rule.action_count}a
@@ -262,6 +315,14 @@ function RuleCataloguePage() {
               </table>
             </div>
           </div>
+
+          {canEdit && (
+            <BulkDeleteBar
+              ruleKeys={[...picked]}
+              onClear={() => setPicked(new Set())}
+              onDone={() => void refetch()}
+            />
+          )}
 
           <div className="flex items-center justify-between gap-3 mt-4">
             <div className="text-xs text-muted-foreground">

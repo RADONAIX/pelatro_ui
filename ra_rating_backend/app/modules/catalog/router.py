@@ -35,6 +35,7 @@ from app.modules.catalog import schemas as s
 from app.modules.catalog import service as svc
 from app.modules.charging import models as cm
 from app.modules.charging import schemas as cs
+from app.modules.mirror import hooks as mirror_hooks
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
@@ -599,6 +600,7 @@ async def create_prefix(
     db.add(obj)
     await db.flush()
     await db.refresh(obj)
+    mirror_hooks.record_prefix(db, obj.id)
     return obj
 
 
@@ -610,4 +612,11 @@ async def create_prefix(
 )
 async def delete_prefix(db: DbSession, prefix_id: str) -> None:
     obj = await svc.get_by_id(db, m.DestinationPrefix, prefix_id, "Prefix")
+    # Captured before the delete: this is a hard delete, so after the commit
+    # there is no row left to read the zone code from. Guarded on the flag so a
+    # deployment with the mirror off issues exactly the queries it always did.
+    if mirror_hooks.is_enabled():
+        zone = await db.get(m.DestinationZone, obj.zone_id)
+        if zone is not None:
+            mirror_hooks.record_prefix_delete(db, obj.prefix, zone.code)
     await db.delete(obj)

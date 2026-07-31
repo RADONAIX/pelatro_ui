@@ -1,5 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Check, Eye, ShieldCheck, Undo2 } from "lucide-react";
 import { toast } from "sonner";
@@ -7,8 +6,12 @@ import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatTile } from "@/components/ui-kit/StatTile";
 import { useT } from "@/lib/i18n";
-import { ratingApi, ratingError } from "@/lib/rating/api";
-import { useCanEditRules, useRules } from "@/lib/rating/hooks";
+import { ratingError } from "@/lib/rating/api";
+import {
+  useBulkAction,
+  useCanApproveRules,
+  useCanonicalRules,
+} from "@/lib/rating/hooks";
 import { fmtDate, statusTone } from "@/lib/rating/format";
 import { RuleStatusBadge } from "@/components/rating/RuleStatusBadge";
 import {
@@ -28,43 +31,59 @@ const QUEUE = [
   {
     status: "VALIDATED",
     heading: "Awaiting review",
-    advance: "REVIEWED",
-    advanceLabel: "Mark reviewed",
   },
   {
     status: "REVIEWED",
     heading: "Awaiting approval",
-    advance: "APPROVED",
-    advanceLabel: "Approve",
   },
 ] as const;
 
 function ApprovalsPage() {
   const t = useT();
-  const canEdit = useCanEditRules();
-  const qc = useQueryClient();
+  const canApprove = useCanApproveRules();
   const [comment, setComment] = useState("");
 
-  const validated = useRules({ status: "VALIDATED", limit: 100 });
-  const reviewed = useRules({ status: "REVIEWED", limit: 100 });
+  // Imports are written to ra_rule.rule by the canonical ingestion kernel.
+  // Reading the legacy /rules endpoint here makes a valid import invisible to
+  // its second approver, which defeats maker-checker at the final hand-off.
+  const validated = useCanonicalRules({ status: "VALIDATED", limit: 100 });
+  const reviewed = useCanonicalRules({ status: "REVIEWED", limit: 100 });
   const byStatus = { VALIDATED: validated, REVIEWED: reviewed };
 
-  const act = useMutation({
-    mutationFn: async (vars: { ruleId: string; status: string }) => {
-      const { data } = await ratingApi.post(`/rules/${vars.ruleId}/status`, {
-        status: vars.status,
-        comment: comment.trim() || undefined,
+  const approve = useBulkAction("approve");
+  const revert = useBulkAction("revert");
+
+  const approveRule = async (ruleKey: string) => {
+    try {
+      const result = await approve.mutateAsync({
+        rule_keys: [ruleKey],
+        comment: comment.trim(),
       });
-      return data;
-    },
-    onSuccess: (_data, vars) => {
-      toast.success(`${t("Moved to")} ${vars.status}`);
-      qc.invalidateQueries({ queryKey: ["rating", "rules"] });
-      qc.invalidateQueries({ queryKey: ["rating", "rule"] });
-    },
-    onError: (err) =>
-      toast.error(t("Transition refused"), { description: ratingError(err) }),
-  });
+      if (result.applied) {
+        toast.success(t("Rule approved"));
+      } else {
+        toast.error(t("Approval was not applied"), {
+          description:
+            result.blocked[0]?.reason ||
+            t("This rule is not eligible for approval."),
+        });
+      }
+    } catch (err) {
+      toast.error(t("Approval refused"), { description: ratingError(err) });
+    }
+  };
+
+  const returnToDraft = async (ruleKey: string) => {
+    try {
+      const result = await revert.mutateAsync({
+        rule_keys: [ruleKey],
+        comment: comment.trim(),
+      });
+      if (result.applied) toast.success(t("Returned to draft"));
+    } catch (err) {
+      toast.error(t("Transition refused"), { description: ratingError(err) });
+    }
+  };
 
   const isLoading = validated.isLoading || reviewed.isLoading;
   const error = validated.error ?? reviewed.error;
@@ -100,7 +119,7 @@ function ApprovalsPage() {
         />
       </div>
 
-      {canEdit && (
+      {canApprove && (
         <div className="mb-6">
           <input
             value={comment}
@@ -169,57 +188,49 @@ function ApprovalsPage() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {rows.map((rule) => (
-                    <tr key={rule.id} className="hover:bg-muted/30 transition">
+                    <tr
+                      key={rule.rule_id}
+                      className="hover:bg-muted/30 transition"
+                    >
                       <td className="px-5 py-2.5">
-                        <Link
-                          to="/rating/rules/$ruleId"
-                          params={{ ruleId: rule.id }}
-                          className="hover:underline"
-                        >
-                          <div className="font-mono text-[12px] text-primary">
-                            {rule.rule_key} v{rule.version}
-                          </div>
-                          <div className="text-[12px] text-muted-foreground line-clamp-1">
-                            {rule.name}
-                          </div>
-                        </Link>
+                        <div className="font-mono text-[12px] text-primary">
+                          {rule.rule_key} v{rule.version_number ?? 1}
+                        </div>
+                        <div className="text-[12px] text-muted-foreground line-clamp-1">
+                          {rule.rule_name}
+                        </div>
                       </td>
                       <td className="px-3 py-2.5 text-[12px]">
-                        {rule.rule_type}
+                        {rule.rule_type_code}
                       </td>
                       <td className="px-3 py-2.5 text-[12px]">
                         {rule.service_type}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums">
-                        {rule.priority}
+                        {rule.priority ?? "—"}
                       </td>
                       <td className="px-3 py-2.5 text-[12px] text-muted-foreground whitespace-nowrap">
-                        {fmtDate(rule.effective_from)}
+                        {rule.effective_from
+                          ? fmtDate(rule.effective_from)
+                          : "—"}
                       </td>
                       <td className="px-3 py-2.5 text-[12px] text-muted-foreground">
                         {rule.owner || "—"}
                       </td>
                       <td className="px-5 py-2.5">
-                        {canEdit ? (
+                        {canApprove ? (
                           <div className="flex justify-end gap-2">
                             <button
-                              onClick={() =>
-                                act.mutate({
-                                  ruleId: rule.id,
-                                  status: station.advance,
-                                })
-                              }
-                              disabled={act.isPending}
+                              onClick={() => void approveRule(rule.rule_key)}
+                              disabled={approve.isPending || revert.isPending}
                               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
                             >
                               <Check className="h-3.5 w-3.5" />
-                              {t(station.advanceLabel)}
+                              {t("Approve")}
                             </button>
                             <button
-                              onClick={() =>
-                                act.mutate({ ruleId: rule.id, status: "DRAFT" })
-                              }
-                              disabled={act.isPending}
+                              onClick={() => void returnToDraft(rule.rule_key)}
+                              disabled={approve.isPending || revert.isPending}
                               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-muted transition disabled:opacity-50"
                             >
                               <Undo2 className="h-3.5 w-3.5" />

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, RuleStateError, ValidationFailedError
+from app.modules.mirror import hooks as mirror_hooks
 from app.modules.rules import validation
 from app.modules.rules.constants import (
     ALLOWED_TRANSITIONS,
@@ -288,6 +289,7 @@ async def create_rule(
         to_status=rule.status, comment=payload.change_comment,
     )
     await db.refresh(rule)
+    mirror_hooks.record_legacy_rule(db, rule.id)
     return rule
 
 
@@ -334,6 +336,7 @@ async def update_rule(
             comment=payload.change_comment or "", diff=diff,
         )
     await db.refresh(rule)
+    mirror_hooks.record_legacy_rule(db, rule.id)
     return rule
 
 
@@ -386,6 +389,7 @@ async def new_version(
         diff={"from_version": source.version, "to_version": draft.version},
     )
     await db.refresh(draft)
+    mirror_hooks.record_legacy_rule(db, draft.id)
     return draft
 
 
@@ -429,6 +433,7 @@ async def clone_rule(
         diff={"source_rule_key": source.rule_key, "source_version": source.version},
     )
     await db.refresh(clone)
+    mirror_hooks.record_legacy_rule(db, clone.id)
     return clone
 
 
@@ -486,6 +491,7 @@ async def change_status(
         from_status=previous, to_status=target, comment=comment,
     )
     await db.refresh(rule)
+    mirror_hooks.record_legacy_rule(db, rule.id)
     return rule
 
 
@@ -501,6 +507,9 @@ async def delete_draft(db: AsyncSession, rule_id: str) -> None:
             "Only a first-version draft can be deleted; retire the rule instead.",
             details={"status": rule.status, "version": rule.version},
         )
+    # Captured before the delete: this is a hard delete, so after the commit
+    # there is no row left to identify.
+    mirror_hooks.record_legacy_rule_delete(db, rule.id)
     await db.delete(rule)
 
 

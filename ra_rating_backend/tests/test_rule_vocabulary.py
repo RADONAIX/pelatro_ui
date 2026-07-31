@@ -7,6 +7,8 @@ operators or an action whose stage doesn't exist would ship a broken form.
 
 from __future__ import annotations
 
+import asyncio
+
 from app.modules.rules.constants import (
     ACTION_BY_TYPE,
     ACTION_SPECS,
@@ -72,6 +74,20 @@ def test_actions_are_unique_and_staged():
         assert spec.stage in STAGE_ORDER, f"{spec.type} has unknown stage {spec.stage}"
         keys = [p.key for p in spec.params]
         assert len(keys) == len(set(keys)), f"{spec.type} has duplicate params"
+
+
+def test_action_builder_hides_advanced_tuning_fields_but_storage_keeps_compatibility():
+    from app.modules.meta.router import action_types
+
+    rows = asyncio.run(action_types(None))
+    hidden = {"per_units", "subsequent_seconds", "decimals", "consume_order"}
+
+    assert all(not ({p["key"] for p in row["params"]} & hidden) for row in rows)
+    assert hidden <= {
+        param.key
+        for spec in ACTION_SPECS
+        for param in spec.params
+    }
 
 
 def test_action_reference_params_point_at_a_real_catalogue():

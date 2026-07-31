@@ -19,17 +19,33 @@ import { InfoHint } from "@/components/ui-kit/InfoHint";
 import { useT } from "@/lib/i18n";
 import { ratingError } from "@/lib/rating/api";
 import {
-  rejectedRowsUrl,
+  ingestRejectsUrl,
   useCanEditRules,
-  useCommitImport,
   useImportCapabilities,
-  useImportColumns,
-  useImportHistory,
-  usePreviewImport,
-  useRuleSets,
+  useIngestBatches,
+  useIngestColumns,
+  useIngestCommit,
+  useIngestPreview,
+  useCanonicalRuleSets,
 } from "@/lib/rating/hooks";
 import { RatingEmpty } from "@/components/rating/RatingState";
-import type { ImportBatch, ImportPreview } from "@/lib/rating/types";
+import { BulkLifecyclePanel } from "@/components/rating/BulkLifecyclePanel";
+import type { IngestBatch, IngestPreview } from "@/lib/rating/types";
+
+/**
+ * Rows the kernel accepted. `UNCHANGED` counts: the file described a rule the
+ * estate already holds identically, which is a successful import of that rule,
+ * not a failure — a nightly full dump is mostly unchanged rows, and reporting
+ * them as rejected would make every routine import look like a disaster.
+ */
+function acceptedRows(counts: Record<string, number>): number {
+  return (counts.NEW ?? 0) + (counts.CHANGED ?? 0) + (counts.UNCHANGED ?? 0);
+}
+
+/** Rows it could not use — failed validation, or could not be read at all. */
+function refusedRows(counts: Record<string, number>): number {
+  return (counts.REJECTED ?? 0) + (counts.QUARANTINED ?? 0);
+}
 
 export const Route = createFileRoute("/rating/rules/import")({
   component: ImportRulesPage,
@@ -42,20 +58,24 @@ function ImportRulesPage() {
   const canEdit = useCanEditRules();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const { data: columns = [] } = useImportColumns();
+  const { data: columns = [] } = useIngestColumns();
   const { data: capabilities } = useImportCapabilities();
-  const { data: ruleSets = [] } = useRuleSets();
-  const { data: history = [], refetch: refetchHistory } = useImportHistory();
+  const { data: ruleSets = [] } = useCanonicalRuleSets();
+  const { data: batches, refetch: refetchHistory } = useIngestBatches();
+  const history = batches?.items ?? [];
 
-  const previewMutation = usePreviewImport();
-  const commitMutation = useCommitImport();
+  const previewMutation = useIngestPreview();
+  const commitMutation = useIngestCommit();
 
   const [step, setStep] = useState<Step>("upload");
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [preview, setPreview] = useState<IngestPreview | null>(null);
   const [mapping, setMapping] = useState<Record<string, string | null>>({});
   const [ruleSetId, setRuleSetId] = useState("");
-  const [result, setResult] = useState<ImportBatch | null>(null);
+  // On by default. The rule set is what makes an import addressable afterwards —
+  // without one, "approve everything I just imported" has nothing to name.
+  const [createRuleSet, setCreateRuleSet] = useState(true);
+  const [result, setResult] = useState<IngestBatch | null>(null);
 
   // Column options, grouped so a 40-entry list stays navigable.
   const columnOptions = useMemo(
@@ -116,16 +136,18 @@ function ImportRulesPage() {
         file,
         mapping,
         rule_set_id: ruleSetId || undefined,
-        source_system: "FILE_IMPORT",
+        create_rule_set: !ruleSetId && createRuleSet,
       });
       setResult(batch);
       setStep("done");
       void refetchHistory();
+      const ok = acceptedRows(batch.counts);
+      const bad = refusedRows(batch.counts);
       toast.success(
-        `${batch.imported_rows} ${t("rules imported")}`,
-        batch.rejected_rows
+        `${ok} ${t("rules imported")}`,
+        bad
           ? {
-              description: `${batch.rejected_rows} ${t("rows rejected — download them below.")}`,
+              description: `${bad} ${t("rows rejected — download them below.")}`,
             }
           : undefined,
       );
@@ -302,33 +324,80 @@ function ImportRulesPage() {
             <StatTile
               icon={FileSpreadsheet}
               label={t("Rows in file")}
-              value={String(preview.total_rows)}
+              value={String(preview.row_count)}
             />
             <StatTile
               icon={CheckCircle2}
               label={t("Ready to import")}
-              value={String(preview.valid_rows)}
+              value={String(acceptedRows(preview.counts))}
             />
             <StatTile
               icon={XCircle}
               label={t("Will be rejected")}
-              value={String(preview.rejected_rows)}
+              value={String(
+                refusedRows(preview.counts) + preview.parse_rejections.length,
+              )}
             />
           </div>
 
-          {preview.missing_required.length > 0 && (
-            <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-4 flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          {/* What the catalogue is missing, grouped by entity. This is the
+              thing an operator can actually act on: a file naming a zone that
+              does not exist is not a bad file, it is a catalogue that has not
+              caught up, and the fix is a catalogue entry rather than an edit to
+              every row that mentions it. */}
+          {preview.missing_metadata.length > 0 && (
+            <div className="rounded-xl border border-warning/20 bg-warning/10 p-4 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-foreground">
+                  {t("The catalogue is missing entries this file references")}
+                </div>
+                <ul className="mt-2 space-y-1">
+                  {preview.missing_metadata.map((m) => (
+                    <li
+                      key={`${m.entity}:${m.code}`}
+                      className="text-[13px] text-muted-foreground"
+                    >
+                      <span className="font-mono text-foreground">
+                        {m.code}
+                      </span>{" "}
+                      <span className="text-[11px] uppercase tracking-wide">
+                        {m.entity}
+                      </span>{" "}
+                      · {m.count} {t("rows")}
+                      {m.reason && ` — ${m.reason}`}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {preview.unmapped_headings.length > 0 && (
+            <div className="rounded-xl border border-border bg-muted/40 p-4 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
               <div>
                 <div className="text-sm font-semibold text-foreground">
-                  {t("Required columns are not mapped")}
+                  {t("Columns we did not recognise")}
                 </div>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {preview.missing_required.join(", ")} —{" "}
-                  {t("map them below, or every row will be rejected.")}
+                  {preview.unmapped_headings.join(", ")} —{" "}
+                  {t(
+                    "map them below if they matter. An ignored rate column is the difference between a correct import and a costly one.",
+                  )}
                 </p>
               </div>
             </div>
+          )}
+
+          {preview.notes.length > 0 && (
+            <ul className="rounded-xl border border-border bg-card p-4 space-y-1">
+              {preview.notes.map((n, i) => (
+                <li key={i} className="text-[13px] text-muted-foreground">
+                  {n}
+                </li>
+              ))}
+            </ul>
           )}
 
           <section className="bg-card border border-border rounded-xl overflow-hidden">
@@ -389,10 +458,10 @@ function ImportRulesPage() {
             <div className="px-5 py-4 border-b border-border">
               <h2 className="text-sm font-semibold text-foreground">
                 {t("Row preview")}
-                {preview.truncated && (
+                {preview.sample.length < preview.row_count && (
                   <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                    {t("first")} {preview.rows.length} {t("of")}{" "}
-                    {preview.total_rows}
+                    {t("first")} {preview.sample.length} {t("of")}{" "}
+                    {preview.row_count}
                   </span>
                 )}
               </h2>
@@ -413,33 +482,34 @@ function ImportRulesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {preview.rows.map((row) => {
-                    const rejected = row.status === "REJECTED";
-                    const canonical = row.canonical as {
-                      name?: string;
-                      rule_type?: string;
-                      conditions?: unknown[];
-                      actions?: unknown[];
-                    } | null;
+                  {preview.sample.map((row) => {
+                    // The kernel's verdict, not a pass/fail. NEW, CHANGED and
+                    // UNCHANGED are all successful outcomes and mean different
+                    // things to an operator: CHANGED is the one to read.
+                    const bad =
+                      row.decision === "REJECTED" ||
+                      row.decision === "QUARANTINED";
+                    const tone = bad
+                      ? "text-destructive"
+                      : row.decision === "CHANGED"
+                        ? "text-warning"
+                        : "text-success";
                     return (
                       <tr
-                        key={row.row_number}
-                        className={rejected ? "bg-destructive/5" : ""}
+                        key={row.source_offset}
+                        className={bad ? "bg-destructive/5" : ""}
                       >
                         <td className="px-4 py-2.5 align-top text-muted-foreground tabular-nums">
-                          {row.row_number}
+                          {row.source_offset}
                         </td>
                         <td className="px-4 py-2.5 align-top">
-                          {canonical ? (
+                          {row.rule_key ? (
                             <>
                               <div className="text-foreground">
-                                {canonical.name}
+                                {row.rule_name || row.rule_key}
                               </div>
-                              <div className="text-[11px] text-muted-foreground">
-                                {canonical.rule_type} ·{" "}
-                                {canonical.conditions?.length ?? 0}{" "}
-                                {t("conditions")} ·{" "}
-                                {canonical.actions?.length ?? 0} {t("actions")}
+                              <div className="text-[11px] text-muted-foreground font-mono">
+                                {row.rule_key}
                               </div>
                             </>
                           ) : (
@@ -447,24 +517,31 @@ function ImportRulesPage() {
                           )}
                         </td>
                         <td className="px-4 py-2.5 align-top">
-                          {rejected ? (
-                            <div className="space-y-0.5">
-                              {row.errors.map((e, i) => (
-                                <div
-                                  key={i}
-                                  className="text-[12px] text-destructive flex items-start gap-1.5"
-                                >
-                                  <XCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                                  <span>{e.message}</span>
-                                </div>
-                              ))}
+                          <div
+                            className={`text-[12px] inline-flex items-center gap-1.5 ${tone}`}
+                          >
+                            {bad ? (
+                              <XCircle className="h-3.5 w-3.5" />
+                            ) : (
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            )}
+                            {row.decision}
+                          </div>
+                          {row.reason && (
+                            <div className="text-[11px] text-muted-foreground mt-0.5">
+                              {row.reason}
                             </div>
-                          ) : (
-                            <span className="text-[12px] text-success inline-flex items-center gap-1.5">
-                              <CheckCircle2 className="h-3.5 w-3.5" />{" "}
-                              {t("Ready")}
-                            </span>
                           )}
+                          <div className="space-y-0.5 mt-0.5">
+                            {row.issues.map((e, i) => (
+                              <div
+                                key={i}
+                                className="text-[12px] text-destructive"
+                              >
+                                {e.message}
+                              </div>
+                            ))}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -485,13 +562,29 @@ function ImportRulesPage() {
                 options={[
                   { value: "", label: t("None") },
                   ...ruleSets.map((r) => ({
-                    value: r.id,
-                    label: `${r.code} — ${r.name}`,
+                    value: r.rule_set_id,
+                    label: `${r.code} — ${r.name} (${r.rule_count})`,
                   })),
                 ]}
                 minWidth={220}
                 size="sm"
               />
+              {!ruleSetId && (
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={createRuleSet}
+                    onChange={(e) => setCreateRuleSet(e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  {t("create one for this import")}
+                  <InfoHint
+                    text={t(
+                      "A rule set makes the whole import addressable afterwards — validate, approve, activate or roll it back as one unit instead of rule by rule.",
+                    )}
+                  />
+                </label>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -502,7 +595,9 @@ function ImportRulesPage() {
               </button>
               <button
                 onClick={commit}
-                disabled={commitMutation.isPending || preview.valid_rows === 0}
+                disabled={
+                  commitMutation.isPending || acceptedRows(preview.counts) === 0
+                }
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {commitMutation.isPending ? (
@@ -510,7 +605,7 @@ function ImportRulesPage() {
                 ) : (
                   <Upload className="h-4 w-4" />
                 )}
-                {t("Import")} {preview.valid_rows} {t("rules")}
+                {t("Import")} {acceptedRows(preview.counts)} {t("rules")}
               </button>
             </div>
           </div>
@@ -524,21 +619,32 @@ function ImportRulesPage() {
             <StatTile
               icon={FileSpreadsheet}
               label={t("Rows")}
-              value={String(result.total_rows)}
+              value={String(
+                acceptedRows(result.counts) + refusedRows(result.counts),
+              )}
             />
             <StatTile
               icon={CheckCircle2}
               label={t("Imported")}
-              value={String(result.imported_rows)}
+              value={String(acceptedRows(result.counts))}
             />
             <StatTile
               icon={XCircle}
               label={t("Rejected")}
-              value={String(result.rejected_rows)}
+              value={String(refusedRows(result.counts))}
             />
           </div>
 
-          {result.rejected_rows > 0 && (
+          {result.rule_set_id && (
+            <BulkLifecyclePanel
+              key={result.rule_set_id}
+              ruleSetId={result.rule_set_id}
+              ruleSetCode={result.rule_set_code}
+              ruleCount={acceptedRows(result.counts)}
+            />
+          )}
+
+          {refusedRows(result.counts) > 0 && (
             <section className="bg-card border border-border rounded-xl p-5">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
@@ -546,7 +652,7 @@ function ImportRulesPage() {
                     {t("Why rows were rejected")}
                   </h2>
                   <ul className="mt-3 space-y-1.5">
-                    {(result.summary?.reasons ?? []).map((r) => (
+                    {(result.reasons ?? []).map((r) => (
                       <li
                         key={r.message}
                         className="text-[13px] text-muted-foreground flex items-start gap-2"
@@ -560,7 +666,7 @@ function ImportRulesPage() {
                   </ul>
                 </div>
                 <a
-                  href={rejectedRowsUrl(result.id)}
+                  href={ingestRejectsUrl(result.batch_id)}
                   className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted transition"
                 >
                   <Download className="h-4 w-4" /> {t("Download rejected rows")}
@@ -602,23 +708,33 @@ function ImportRulesPage() {
           <table className="w-full text-sm">
             <tbody className="divide-y divide-border">
               {history.map((b) => (
-                <tr key={b.id}>
+                <tr key={b.batch_id}>
                   <td className="px-5 py-3">
                     <div className="text-foreground">{b.filename}</div>
                     <div className="text-[11px] text-muted-foreground">
-                      {b.created_by_name ?? "—"} ·{" "}
-                      {new Date(b.created_at).toLocaleString()}
+                      {b.triggered_by_name ?? "—"}
+                      {b.started_at &&
+                        ` · ${new Date(b.started_at).toLocaleString()}`}
+                      {b.rule_set_code && ` · ${b.rule_set_code}`}
                     </div>
                   </td>
                   <td className="px-5 py-3 text-muted-foreground whitespace-nowrap">
-                    {b.imported_rows} {t("imported")}
-                    {b.rejected_rows > 0 &&
-                      `, ${b.rejected_rows} ${t("rejected")}`}
+                    {acceptedRows(b.counts)} {t("imported")}
+                    {refusedRows(b.counts) > 0 &&
+                      `, ${refusedRows(b.counts)} ${t("rejected")}`}
+                    {/* An import that changed something already live is the one
+                        worth noticing — new drafts price nothing until they are
+                        activated. */}
+                    {b.touched_live_pricing && (
+                      <span className="ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded border bg-warning/10 text-warning border-warning/20">
+                        {t("touched live pricing")}
+                      </span>
+                    )}
                   </td>
                   <td className="px-5 py-3 text-right">
-                    {b.rejected_rows > 0 && (
+                    {refusedRows(b.counts) > 0 && (
                       <a
-                        href={rejectedRowsUrl(b.id)}
+                        href={ingestRejectsUrl(b.batch_id)}
                         className="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1"
                       >
                         <Download className="h-3.5 w-3.5" />{" "}
