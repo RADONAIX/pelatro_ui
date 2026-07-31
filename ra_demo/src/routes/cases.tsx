@@ -627,24 +627,24 @@ function CasesPage() {
           <MultiSelect label="Assurance" options={assuranceOptions} selected={assurance}
             onChange={(next) => { setAssurance(next); setModule(new Set()); setPage(1); }}
             placeholder="All assurances" minWidth={200} allowEmpty />
-          <MultiSelect label="Module" options={moduleOptions} selected={module}
+          {/* <MultiSelect label="Module" options={moduleOptions} selected={module}
             onChange={(next) => { setModule(next); setPage(1); }}
-            placeholder="All modules" minWidth={170} allowEmpty />
-          <MultiSelect label="Issue Type" options={categoryOptions} selected={category}
+            placeholder="All modules" minWidth={170} allowEmpty /> */}
+          {/* <MultiSelect label="Issue Type" options={categoryOptions} selected={category}
             onChange={(next) => { setCategory(next); setPage(1); }}
-            placeholder="All issue types" minWidth={170} allowEmpty />
+            placeholder="All issue types" minWidth={170} allowEmpty /> */}
           <MultiSelect label="Status" options={[...STATUSES]} selected={status}
             onChange={(next) => { setStatus(next); setTile(null); setPage(1); }}
             placeholder="All statuses" minWidth={150} allowEmpty />
           <MultiSelect label="Priority" options={[...SEVERITIES]} selected={severity}
             onChange={(next) => { setSeverity(next); setPage(1); }}
             placeholder="All priorities" minWidth={140} allowEmpty />
-          <MultiSelect label="Origin" options={[{ value: "auto_detected", label: "Rule engine" }, { value: "analyst_raised", label: "Analyst raised" }]}
+          {/* <MultiSelect label="Origin" options={[{ value: "auto_detected", label: "Rule engine" }, { value: "analyst_raised", label: "Analyst raised" }]}
             selected={origin} onChange={(next) => { setOrigin(next); setPage(1); }}
-            placeholder="Any origin" minWidth={150} allowEmpty />
-          <MultiSelect label="Rule" options={ruleOptions} selected={ruleIds}
+            placeholder="Any origin" minWidth={150} allowEmpty /> */}
+          {/* <MultiSelect label="Rule" options={ruleOptions} selected={ruleIds}
             onChange={(next) => { setRuleIds(next); setPage(1); }}
-            placeholder="All rules" minWidth={200} allowEmpty />
+            placeholder="All rules" minWidth={200} allowEmpty /> */}
 
           <div>
             <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">Raised between</span>

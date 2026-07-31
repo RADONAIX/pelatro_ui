@@ -120,6 +120,7 @@ def source_for_schema(
 FILE_LOG_TABLES: tuple[tuple[str, str, str], ...] = (
     ("air_schema", "air_raw_file_log", "AIR Raw"),
     ("air_schema", "air_processed_file_log", "AIR Processed"),
+    ("air_schema", "air_processed", "AIR Processed"),
     ("sdp_schema", "sdp_raw_file_log", "SDP Raw"),
     ("sdp_schema", "sdp_processed_file_log", "SDP Processed"),
 )
