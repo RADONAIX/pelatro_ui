@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/button";
 import { RuleBuilder } from "../RuleBuilder";
 import { useCustomRules, type CustomRule } from "@/lib/assurance/rule-authoring";
 import { tableLabel } from "@/lib/assurance/tables";
-import { createCase } from "@/lib/cases";
+import {
+  FALLBACK_CATALOG,
+  ensureRuleRegistered,
+  fetchCatalog,
+  ingestCase,
+} from "@/lib/cases";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -30,24 +35,109 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
   // eight app names are catalog assurances whose codes equal the app prefixes,
   // and all fifteen rule categories are catalog rule categories.
   //
-  // `module` does NOT line up yet. Only Usage Assurance's entities are all
-  // catalog modules; the other seven carry entities the catalog has no module
-  // for (Rating's "Rated Event"/"Price Plan"/"Product", Network's five, and so
-  // on). It is sent as-is because the entity is what the rule actually targets
-  // — silently dropping it would hide the mismatch. If the case service rejects
-  // unknown modules, reconcile platform-metadata `entities` with the catalog's
-  // `modules` rather than mapping here.
+  // `module` is the exception and is resolved through moduleFor below.
+  /**
+   * The rule's entity, but only if the case service recognises it as a module
+   * of this assurance.
+   *
+   * The service validates entityScope against its catalog and rejects anything
+   * else outright ("entityScope 'Rated Event' is not in scope for Rating
+   * Assurance"), which blocks registration entirely for Rating, Network and
+   * Migration — their platform-metadata entities are not catalog modules. The
+   * assurance, rule id and category are the links that matter, so an
+   * unrecognised entity is dropped rather than failing the whole raise, and the
+   * caller warns so the gap stays visible.
+   *
+   * The proper fix is upstream: reconcile platform-metadata `entities` with the
+   * catalog's `modules` so the two describe the same thing.
+   */
+  const moduleFor = async (rule: CustomRule): Promise<string | null> => {
+    const catalog = await fetchCatalog().catch(() => FALLBACK_CATALOG);
+    const known = catalog.assurances.find((a) => a.name === app.name)?.modules ?? [];
+    return known.includes(rule.entity) ? rule.entity : null;
+  };
+
+  // The feeds a reconciliation rule names, if it names any. Shared by
+  // registration and by the case, so the two never disagree about the source.
+  const feedsOf = (rule: CustomRule) =>
+    rule.comparison?.table1
+      ? {
+          sourceFeed: tableLabel(rule.comparison.table1),
+          ...(rule.comparison.table2
+            ? { targetFeed: tableLabel(rule.comparison.table2) }
+            : {}),
+        }
+      : {};
+
+  /**
+   * Mirror an authored rule into the case service's rule registry.
+   *
+   * Rules authored here live in localStorage; the service keeps its own
+   * registry and rejects a case whose ruleId it doesn't know. Registering makes
+   * the rule a usable case source and puts it in Case Management's Rule filter.
+   */
+  const register = (rule: CustomRule, mod: string | null) =>
+    ensureRuleRegistered({
+      id: rule.id,
+      name: rule.name,
+      assurance: app.name,
+      intent: rule.description.trim(),
+      ...(mod ? { entityScope: mod } : {}),
+      primitiveCategory: rule.category,
+      severity: rule.severity,
+      frequency: rule.frequency,
+      lifecycleState: rule.state,
+      params: rule.params,
+      createdBy: "controls",
+      ...feedsOf(rule),
+    });
+
+  /** One catalog lookup and at most one warning per action. */
+  const resolveModule = async (rule: CustomRule) => {
+    const mod = await moduleFor(rule);
+    if (!mod) {
+      toast.warning(`"${rule.entity}" is not a module of ${app.name}`, {
+        description: "The case service doesn't recognise it, so it is omitted.",
+      });
+    }
+    return mod;
+  };
+
+  /**
+   * Save the rule locally, then mirror it to the case service.
+   *
+   * The local save is what the screen shows, so it happens first and is never
+   * blocked on the network: if registration fails the rule still exists and can
+   * be retried by raising a case, which registers on demand. The warning says
+   * what is lost meanwhile rather than failing silently.
+   */
+  const createRule = (draft: Parameters<typeof addRule>[0]) => {
+    const saved = addRule(draft, app.prefix);
+    resolveModule(saved)
+      .then((mod) => register(saved, mod))
+      .catch((e: Error) => {
+        toast.warning(`${saved.id} saved, but not registered for cases`, {
+          description: e.message,
+        });
+      });
+  };
+
   const raiseCase = async (rule: CustomRule) => {
     if (!rule.caseRouting || raising) return;
     setRaising(rule.id);
     try {
-      const created = await createCase({
+      // Rules authored before this wiring existed — or on another machine —
+      // aren't in the registry yet, so ensure it before raising rather than
+      // assuming creation did it.
+      const mod = await resolveModule(rule);
+      await register(rule, mod);
+      const created = await ingestCase({
         title: rule.name,
         description:
           rule.description.trim() ||
           `${rule.category} control ${rule.id} breached on ${rule.entity}.`,
         assurance: app.name,
-        module: rule.entity,
+        ...(mod ? { module: mod } : {}),
         ruleId: rule.id,
         ruleName: rule.name,
         ruleCategory: rule.category,
@@ -56,14 +146,10 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
         owner: rule.caseRouting.owner,
         // A reconciliation rule already names both sides; anything else has no
         // feeds to report rather than a blank pair worth inventing.
-        ...(rule.comparison?.table1
-          ? {
-              sourceFeed: tableLabel(rule.comparison.table1),
-              ...(rule.comparison.table2
-                ? { targetFeed: tableLabel(rule.comparison.table2) }
-                : {}),
-            }
-          : {}),
+        ...feedsOf(rule),
+        // A control raised this, not a person. createCase would have recorded
+        // it as analyst_raised; the ingest endpoint takes the origin.
+        origin: "auto_detected",
         createdBy: "controls",
         // No expected/actual, impact or affected count: nothing has run, and a
         // zero would read as a measured result.
@@ -104,7 +190,7 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
         title="Rule Explorer"
         description={`${app.controlCount} controls provisioned for ${app.name} · range ${app.controlRange}`}
         actions={
-          <RuleBuilder app={app} onCreate={(rule) => addRule(rule, app.prefix)} />
+          <RuleBuilder app={app} onCreate={createRule} />
         }
       />
 

@@ -419,6 +419,76 @@ export interface CreateCasePayload {
   mismatches?: Partial<CaseMismatch>[];
 }
 
+/**
+ * Registering a control with the case service.
+ *
+ * The service keeps its own rule registry and rejects a case whose ruleId it
+ * does not know ("Unknown rule 'UA901'. Register it via POST /api/rules before
+ * raising cases against it."). Rules authored in the Controls screen live in
+ * the browser until they are registered here, so this is what makes a
+ * locally-authored rule usable as a case source.
+ */
+export interface RegisterRulePayload {
+  id?: string;
+  name: string;
+  assurance: string;
+  intent?: string;
+  entityScope?: string;
+  primitiveCategory?: string;
+  severity?: string;
+  frequency?: string;
+  sourceFeed?: string;
+  targetFeed?: string;
+  tolerancePct?: number | null;
+  params?: Record<string, unknown>;
+  lifecycleState?: string;
+  createdBy?: string;
+}
+
+export const registerRule = (payload: RegisterRulePayload) =>
+  request<ControlRule>("/api/rules", { method: "POST", body: JSON.stringify(payload) });
+
+/** Null when the service does not know this rule, rather than throwing. */
+export async function findRule(id: string): Promise<ControlRule | null> {
+  try {
+    return await request<ControlRule>(`/api/rules/${encodeURIComponent(id)}`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Register only if the service doesn't already hold the rule.
+ *
+ * POST is not idempotent — a second call for the same id returns 409 — so the
+ * existence check has to come first. Returns the registered rule either way.
+ */
+export async function ensureRuleRegistered(
+  payload: RegisterRulePayload & { id: string },
+): Promise<ControlRule> {
+  return (await findRule(payload.id)) ?? (await registerRule(payload));
+}
+
+/**
+ * The rule-engine entry point, as opposed to createCase's analyst one.
+ *
+ * Accepts `origin`, so a case raised by a control is recorded as auto_detected
+ * rather than analyst_raised, and `dedupeKey`, which returns the existing case
+ * (200) instead of creating a duplicate (201).
+ */
+export type IngestCasePayload = CreateCasePayload & {
+  origin?: string;
+  dedupeKey?: string;
+  ruleRunId?: string;
+  detectedAt?: string;
+};
+
+export const ingestCase = (payload: IngestCasePayload) =>
+  request<AssuranceCase>("/api/cases/ingest", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
 export const createCase = (payload: CreateCasePayload) =>
   request<AssuranceCase>("/api/cases", { method: "POST", body: JSON.stringify(payload) });
 

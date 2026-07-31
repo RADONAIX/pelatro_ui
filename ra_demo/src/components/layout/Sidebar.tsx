@@ -6,7 +6,6 @@ import {
   // icon distinguishable from the nav item it belongs to.
   Home as HomeIcon,
   LayoutDashboard,
-  Settings2,
   ShieldCheck,
 } from "lucide-react";
 import { useMemo } from "react";
@@ -21,18 +20,19 @@ import { catalogForScope } from "@/lib/reportCatalogs";
 // ---------------------------------------------------------------------------
 // One continuous module list, from two sources:
 //   RatingSidebarNav      — Reports, Pipelines, Rule Management (+children),
-//                           Metadata Catalogue, Operations, Case Management,
-//                           System Monitoring.  (src/lib/rating/nav.ts)
+//                           Metadata Catalogue, Case Management, System
+//                           Monitoring.  (src/lib/rating/nav.ts)
 //   AssuranceSidebarNav   — the entity scope for the app currently selected in
 //                           the header.
 //
-// Plus three injected above them: Home, the cross-assurance Enterprise
-// Dashboard, and the selected assurance's own Assurance Dashboard. There is
-// deliberately no fourth "Dashboard & KPIs" — see the note in rating/nav.ts.
+// Plus five injected: Home, the cross-assurance Enterprise Dashboard and the
+// selected assurance's Assurance Dashboard above the list; Controls and Data
+// Sources in the middle of it. There is deliberately no "Dashboard & KPIs" and
+// no "Operations" group — see the notes in rating/nav.ts.
 //
-// Almost nothing moves when the Assurance Scope changes: the scope re-targets
-// Controls and Administration, and hides the two rating-specific modules below.
-// Every other module is present under every scope.
+// Almost nothing moves when the Assurance Scope changes: it re-targets the
+// Assurance Dashboard, Reports and Controls, and hides the two rating-specific
+// modules. Every other module is present under every scope.
 // ---------------------------------------------------------------------------
 
 /**
@@ -45,8 +45,11 @@ const RATING_ONLY_PATHS = new Set(["/rating/rules", "/rating/catalog"]);
 
 const RATING_SCOPE_ID = "rating";
 
-/** The group whose children this file replaces wholesale. */
-const OPERATIONS_PATH = "/rating/admin";
+/**
+ * Controls and Data Sources are injected immediately before Case Management —
+ * the slot the removed Operations group used to occupy, so nothing moved.
+ */
+const CASES_PATH = "/cases";
 
 /** The reports entry RATING_NAV declares; re-targeted per scope below. */
 const RATING_REPORTS_PATH = "/rating/reports";
@@ -97,35 +100,18 @@ export function Sidebar({
   const t = useT();
   const { scope, app } = useAssuranceScope();
 
-  // Operations is rebuilt rather than taken from RATING_NAV as-is. Its declared
-  // children (Replay & Recovery, Tolerance Policies, Audit Logs) are all
-  // unbuilt phase-2+ placeholders; they are replaced by the two screens that do
-  // exist — the assurance Controls explorer for the selected app, and the
-  // platform's Data Sources register.
-  const operations: RatingNavItem = useMemo(
+  // The rule explorer for the selected app. Top level rather than inside an
+  // Operations group: that group's declared children were all unbuilt
+  // placeholders, and once Data Sources moved out it wrapped this one item.
+  const controls: RatingNavItem = useMemo(
     () => ({
-      to: OPERATIONS_PATH,
-      label: "Operations",
-      icon: Settings2,
+      // Falls back to a placeholder path while nothing is selected. It is never
+      // linkable in that state — availablePaths below omits it, so the row
+      // renders disabled rather than pointing at /assurance/null.
+      to: app ? `/assurance/${app.id}/controls` : "/assurance/controls",
+      label: "Controls",
+      icon: ShieldCheck,
       phase: 1,
-      children: [
-        {
-          // Falls back to a placeholder path while nothing is selected. It is
-          // never linkable in that state — availablePaths below omits it, so
-          // the row renders disabled rather than pointing at /assurance/null.
-          to: app ? `/assurance/${app.id}/controls` : "/assurance/controls",
-          label: "Controls",
-          icon: ShieldCheck,
-          phase: 1,
-        },
-        // Data Sources has moved out to a top-level module: the feed register is
-        // the same one under every assurance, so nesting it under an
-        // assurance-scoped group implied it changed with the scope.
-        //
-        // /cases is not listed here either: it is the top-level Case Management
-        // module in RATING_NAV. Two entries pointing at one route would both
-        // highlight on it and make the queue look like two different screens.
-      ],
     }),
     [app],
   );
@@ -165,16 +151,14 @@ export function Sidebar({
       ENTERPRISE_DASHBOARD_ITEM,
       assuranceDashboard,
       ...base.flatMap((item) => {
-        if (item.to === OPERATIONS_PATH) {
-          // Data Sources follows Operations, where it used to live as a child —
-          // same position in the list, one level up.
-          return [operations, DATA_SOURCES_ITEM];
-        }
+        // Both land in the slot Operations held, immediately above the queue
+        // their findings go to.
+        if (item.to === CASES_PATH) return [controls, DATA_SOURCES_ITEM, item];
         if (item.to === RATING_REPORTS_PATH) return [{ ...item, to: reports.path }];
         return [item];
       }),
     ];
-  }, [scope, operations, assuranceDashboard, reports.path]);
+  }, [scope, controls, assuranceDashboard, reports.path]);
 
   /**
    * Modules whose presence or target follows the selected assurance. Everything
@@ -182,7 +166,7 @@ export function Sidebar({
    *
    * Presence: Rule Management and Metadata Catalogue exist only under Rating.
    * Target: the Assurance Dashboard, Reports and Controls all re-point at the
-   * selected app — and Operations is here because Controls is now its only child.
+   * selected app.
    *
    * Pipelines & Job Monitor is listed as assurance-specific because that is the
    * intent, but note it does not re-target yet: /pipelines is the same
@@ -194,11 +178,10 @@ export function Sidebar({
         assuranceDashboard.to,
         reports.path,
         "/pipelines",
-        OPERATIONS_PATH,
-        ...(operations.children ?? []).map((c) => c.to),
+        controls.to,
         ...RATING_ONLY_PATHS,
       ]),
-    [assuranceDashboard.to, reports.path, operations],
+    [assuranceDashboard.to, reports.path, controls.to],
   );
 
   // RATING_AVAILABLE_PATHS is derived from RATING_NAV, so anything injected
@@ -215,10 +198,9 @@ export function Sidebar({
         ENTERPRISE_DASHBOARD_ITEM.to,
         DATA_SOURCES_ITEM.to,
         reports.path,
-        ...(app ? [assuranceDashboard.to] : []),
-        ...(app ? (operations.children ?? []).map((c) => c.to) : []),
+        ...(app ? [assuranceDashboard.to, controls.to] : []),
       ]),
-    [app, operations, assuranceDashboard, reports.path],
+    [app, controls.to, assuranceDashboard, reports.path],
   );
 
   return (

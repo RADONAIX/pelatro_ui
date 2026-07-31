@@ -1,27 +1,17 @@
 import {
   Activity,
-  Briefcase,
-  LayoutDashboard,
-  Wallet,
   BookOpenCheck,
-  Library,
+  Briefcase,
+  FileBarChart2,
   FileCog,
   FileSpreadsheet,
-  ShieldCheck,
-  Package,
-  PlayCircle,
   FlaskConical,
-  RotateCcw,
-  AlertTriangle,
-  FileBarChart2,
-  Plug,
-  Scale,
-  ListChecks,
-  TrendingDown,
-  Settings2,
-  Landmark,
-  ScrollText,
   Gauge,
+  LayoutDashboard,
+  Library,
+  Package,
+  Plug,
+  ShieldCheck,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -125,35 +115,14 @@ export const RATING_NAV: RatingNavItem[] = [
     phase: 1,
   },
   // The reconciliation screens (runs, records, leakage, balances) are reached
-  // by drilling down from Dashboard & KPIs and from each other, not from the
+  // by drilling down from the dashboards and from each other, not from the
   // sidebar — the dashboard is already their entry point, so listing them here
   // duplicated navigation without adding a destination.
-  {
-    to: "/rating/admin",
-    label: "Operations",
-    icon: Settings2,
-    phase: 2,
-    children: [
-      {
-        to: "/rating/replay",
-        label: "Replay & Recovery",
-        icon: RotateCcw,
-        phase: 5,
-      },
-      {
-        to: "/rating/admin/tolerances",
-        label: "Tolerance Policies",
-        icon: Landmark,
-        phase: 2,
-      },
-      {
-        to: "/rating/admin/audit",
-        label: "Audit Logs",
-        icon: ScrollText,
-        phase: 2,
-      },
-    ],
-  },
+  //
+  // No "Operations" group. Its declared children were all unbuilt phase-2+
+  // placeholders, and once Data Sources moved to the top level its only real
+  // entry was Controls — a group wrapping one item. The Sidebar injects
+  // Controls and Data Sources directly, in the position this entry held.
   // The platform-wide case queue (/cases), not the rating exception list
   // (/rating/exceptions). Case Management is where every assurance's rules land
   // their findings — the same screen an analyst raises a case on by hand — so it
