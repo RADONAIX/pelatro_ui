@@ -19,12 +19,16 @@ import { catalogForScope } from "@/lib/reportCatalogs";
 
 // ---------------------------------------------------------------------------
 // One continuous module list, from two sources:
-//   RatingSidebarNav      — Dashboard & KPIs, Reports, Pipelines, Case
-//                           Management, Rule Management (+8 children),
-//                           Metadata Catalogue, Operations, Replay & Recovery,
-//                           System Monitoring.  (src/lib/rating/nav.ts)
-//   AssuranceSidebarNav   — Controls and Administration for the app currently
-//                           selected in the header, plus its entity scope.
+//   RatingSidebarNav      — Reports, Pipelines, Case Management, Rule
+//                           Management (+children), Metadata Catalogue,
+//                           Operations, System Monitoring.
+//                           (src/lib/rating/nav.ts)
+//   AssuranceSidebarNav   — the entity scope for the app currently selected in
+//                           the header.
+//
+// Plus three injected above them: Overview, the cross-assurance Enterprise
+// Dashboard, and the selected assurance's own Assurance Dashboard. There is
+// deliberately no fourth "Dashboard & KPIs" — see the note in rating/nav.ts.
 //
 // Almost nothing moves when the Assurance Scope changes: the scope re-targets
 // Controls and Administration, and hides the two rating-specific modules below.

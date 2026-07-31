@@ -55,7 +55,10 @@ export interface RatingNavItem {
 }
 
 export const RATING_NAV: RatingNavItem[] = [
-  { to: "/rating", label: "Dashboard & KPIs", icon: LayoutDashboard, phase: 1 },
+  // No "Dashboard & KPIs" entry: the Assurance Dashboard the Sidebar injects
+  // covers the selected assurance, and the Enterprise Dashboard covers all of
+  // them, so a third rating-only dashboard was a duplicate of the first. The
+  // /rating route is untouched and still resolves by URL.
   {
     to: "/rating/reports",
     label: "Reports & Certified Exports",
