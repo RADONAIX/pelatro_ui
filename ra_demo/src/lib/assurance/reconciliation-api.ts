@@ -8,6 +8,10 @@ import { api } from "@/lib/api";
 // minute ago appear in the Reports menu without a deploy.
 // ---------------------------------------------------------------------------
 
+// A two-table reconciliation and a single-table sequence answer different
+// questions, so they report different statuses. The server tells the view which
+// set a given report uses (`statuses` on the page) — these are the union, for
+// typing and for colouring.
 export const RECON_STATUSES = [
   "MATCH",
   "MISMATCH",
@@ -15,7 +19,11 @@ export const RECON_STATUSES = [
   "PROCESSED_MISSING",
 ] as const;
 
-export type ReconStatus = (typeof RECON_STATUSES)[number];
+export const SEQUENCE_STATUSES = ["PRESENT", "GAP", "DUPLICATE"] as const;
+
+export type ReconStatus =
+  | (typeof RECON_STATUSES)[number]
+  | (typeof SEQUENCE_STATUSES)[number];
 
 export interface ReconReport {
   key: string;
@@ -47,6 +55,10 @@ export interface ReconPage {
   executionId: string | null;
   executedAt: string | null;
   statusFilter?: ReconStatus | null;
+  /** "reconciliation" | "sequence" | "duplicate". */
+  kind?: string;
+  /** The statuses THIS report can produce — drives the filter chips. */
+  statuses?: ReconStatus[];
   note?: string;
 }
 

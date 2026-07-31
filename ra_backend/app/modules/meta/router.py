@@ -46,6 +46,25 @@ async def metadata_tables(
     return await metadata_catalog.list_tables(assurance)
 
 
+@router.get("/metadata/file-logs", response_model=list[metadata_catalog.TableMetadata])
+async def metadata_file_logs() -> list[metadata_catalog.TableMetadata]:
+    """The AIR/SDP raw and processed file logs — the tables single-table rules
+    (Sequence, Duplicate) are authored against. Not assurance-scoped: the same
+    four logs answer the question for every assurance."""
+    return await metadata_catalog.list_file_logs()
+
+
+@router.get(
+    "/metadata/file-logs/{schema_name}/{table_name}/columns",
+    response_model=list[metadata_catalog.ColumnMetadata],
+)
+async def metadata_file_log_columns(
+    schema_name: str,
+    table_name: str,
+) -> list[metadata_catalog.ColumnMetadata]:
+    return await metadata_catalog.list_file_log_columns(schema_name, table_name)
+
+
 @router.get(
     "/metadata/tables/{schema_name}/{table_name}/columns",
     response_model=list[metadata_catalog.ColumnMetadata],

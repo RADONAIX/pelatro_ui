@@ -12,7 +12,10 @@ be a reserved word. Values are NEVER interpolated: the execution engine binds
 
 from __future__ import annotations
 
+from app.modules.reconciliation import sequence
 from app.modules.reconciliation.plan import (
+    KIND_DUPLICATE,
+    KIND_RECONCILIATION,
     PRESENCE_COLUMN,
     STATUS_MATCH,
     STATUS_MISMATCH,
@@ -36,6 +39,14 @@ def qualified(schema: str, table: str) -> str:
 
 
 def build_ddl(plan: ReconPlan) -> str:
+    """Dispatch on the plan's kind. Single-table rules have a fixed output
+    shape; a reconciliation's is derived from the columns it compares."""
+    if plan.kind != KIND_RECONCILIATION:
+        return sequence.build_sequence_ddl(plan.output_schema, plan.output_table)
+    return _build_recon_ddl(plan)
+
+
+def _build_recon_ddl(plan: ReconPlan) -> str:
     """CREATE TABLE IF NOT EXISTS for the output table.
 
     Column order is the spec's: Part 1 the key columns from both tables, Part 2
@@ -209,6 +220,21 @@ def _side_subquery(plan: ReconPlan, side: str) -> str:
 
 
 def build_insert(plan: ReconPlan) -> str:
+    """Dispatch on kind — the single-table generator lives in sequence.py."""
+    if plan.kind != KIND_RECONCILIATION:
+        if plan.sequence is None:  # pragma: no cover - compiler guarantees this
+            raise ValueError(f"{plan.kind} plan has no sequence options")
+        return sequence.build_sequence_insert(
+            plan.output_schema,
+            plan.output_table,
+            plan.left,
+            plan.sequence,
+            duplicates_only=plan.kind == KIND_DUPLICATE,
+        )
+    return _build_recon_insert(plan)
+
+
+def _build_recon_insert(plan: ReconPlan) -> str:
     """INSERT INTO <output> SELECT ... FROM t1 FULL OUTER JOIN t2 ON <keys>.
 
     One statement: the whole reconciliation happens inside the database, so no

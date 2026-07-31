@@ -163,3 +163,24 @@ CREATE TABLE IF NOT EXISTS application_schema.recon_execution (
 -- execution" lookup the report view does on every open.
 CREATE INDEX IF NOT EXISTS recon_execution_rule_started_idx
     ON application_schema.recon_execution (rule_id, started_at DESC);
+
+
+-- ---------------------------------------------------------------------------
+-- Single-table rules (Sequence, Duplicate).
+--
+-- They share recon_definition rather than getting their own table: the
+-- lifecycle is identical — compile once, store the SQL, run on a schedule,
+-- publish a report — and only the shape of the generated SQL differs. `kind`
+-- selects the generator; `options` carries whatever that generator needs
+-- (which column carries the counter, which digit group inside it, what to
+-- partition by).
+--
+-- For a single-table rule the right_* columns repeat the left table: there is
+-- only one side, and repeating it keeps the NOT NULLs honest without a second
+-- nullable pair of columns that only one kind would ever use.
+-- ---------------------------------------------------------------------------
+ALTER TABLE application_schema.recon_definition
+    ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'reconciliation';
+
+ALTER TABLE application_schema.recon_definition
+    ADD COLUMN IF NOT EXISTS options jsonb NOT NULL DEFAULT '{}'::jsonb;

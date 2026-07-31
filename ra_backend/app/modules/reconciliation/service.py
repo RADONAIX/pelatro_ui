@@ -10,20 +10,41 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.config import settings
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, ValidationFailedError
 from app.core.logging import get_logger
 from app.modules.reconciliation import compiler, engine, repository, sql_builder
-from app.modules.reconciliation.plan import ALL_STATUSES
+from app.modules.reconciliation.plan import (
+    ALL_STATUSES,
+    KIND_DUPLICATE,
+    KIND_RECONCILIATION,
+    KIND_SEQUENCE,
+    SEQUENCE_STATUSES,
+)
 
 log = get_logger("recon.service")
 
-#: The rule category that compiles to a reconciliation. Rules of any other
-#: category are stored and ignored here.
-RECONCILIATION_CATEGORY = "Reconciliation"
+#: Rule categories that compile to something executable, and the generator each
+#: one selects. Any other category is stored by the Rule Explorer and ignored
+#: here — it has no compiled form yet.
+COMPILED_CATEGORIES: dict[str, str] = {
+    "reconciliation": KIND_RECONCILIATION,
+    "sequence": KIND_SEQUENCE,
+    "duplicate": KIND_DUPLICATE,
+}
+
+
+def kind_for(category: str | None) -> str | None:
+    return COMPILED_CATEGORIES.get((category or "").strip().lower())
 
 
 def is_reconciliation(category: str | None) -> bool:
-    return (category or "").strip().lower() == RECONCILIATION_CATEGORY.lower()
+    """True when the category compiles to an executable rule of any kind.
+
+    Kept under its old name because the Rule Explorer calls it to decide whether
+    to compile at all, and that question is now "is this compilable", not "is
+    this specifically a reconciliation".
+    """
+    return kind_for(category) is not None
 
 
 async def compile_and_run(
@@ -41,15 +62,24 @@ async def compile_and_run(
     execution record where an operator can see it. Only a compile error means
     there is nothing to schedule.
     """
-    plan = await compiler.compile_rule(
-        rule_id=rule["id"],
-        assurance_id=rule["appId"],
-        rule_name=rule["name"],
-        comparison=rule.get("comparison") or {},
-        params=rule.get("params") or {},
-        frequency=rule.get("frequency") or "Daily",
-        severity=rule.get("severity") or "medium",
-    )
+    kind = kind_for(rule.get("category")) or KIND_RECONCILIATION
+    common = {
+        "rule_id": rule["id"],
+        "assurance_id": rule["appId"],
+        "rule_name": rule["name"],
+        "frequency": rule.get("frequency") or "Daily",
+        "severity": rule.get("severity") or "medium",
+    }
+    if kind == KIND_RECONCILIATION:
+        plan = await compiler.compile_rule(
+            comparison=rule.get("comparison") or {},
+            params=rule.get("params") or {},
+            **common,
+        )
+    else:
+        plan = await compiler.compile_sequence_rule(
+            kind=kind, params=rule.get("params") or {}, **common
+        )
 
     # Generate once and store what was generated, so the scheduler re-runs
     # byte-identical SQL and an operator can read exactly what executed.
@@ -112,6 +142,38 @@ async def remove(rule_id: str, *, drop_table: bool = True) -> None:
 # --- report service ---------------------------------------------------------
 
 
+def _describe(definition: dict[str, Any]) -> str:
+    """What this report is, in the terms of its own kind — a sequence check is
+    not "reconciles A against B", and saying so would misread the screen."""
+    kind = definition.get("kind") or KIND_RECONCILIATION
+    rule_id = definition["rule_id"]
+    left = f"{definition['left_schema']}.{definition['left_table']}"
+
+    if kind == KIND_RECONCILIATION:
+        right = f"{definition['right_schema']}.{definition['right_table']}"
+        return (
+            f"Reconciles {left} against {right} on {len(definition['join_keys'])} key(s), "
+            f"comparing {len(definition['metrics'])} metric(s). Generated from rule {rule_id}."
+        )
+
+    options = definition.get("options") or {}
+    column = options.get("column", "?")
+    within = (
+        f"within {options['partitionColumn']}"
+        if options.get("partitionColumn")
+        else "within each series"
+    )
+    if kind == KIND_DUPLICATE:
+        return (
+            f"Flags repeated values of {left}.{column} {within}. "
+            f"Generated from rule {rule_id}."
+        )
+    return (
+        f"Checks the sequence carried by {left}.{column} {within} and flags gaps "
+        f"and duplicates. Generated from rule {rule_id}."
+    )
+
+
 def _report_descriptor(definition: dict[str, Any]) -> dict[str, Any]:
     """One entry in the Reports menu. Shaped like the static catalog's entries
     so the UI renders both through the same component."""
@@ -123,13 +185,8 @@ def _report_descriptor(definition: dict[str, Any]) -> dict[str, Any]:
         "assurance": definition["assurance_id"],
         "available": definition["status"] == "Ready",
         "status": definition["status"],
-        "description": (
-            f"Reconciles {definition['left_schema']}.{definition['left_table']} against "
-            f"{definition['right_schema']}.{definition['right_table']} on "
-            f"{len(definition['join_keys'])} key(s), comparing "
-            f"{len(definition['metrics'])} metric(s). Generated from rule "
-            f"{definition['rule_id']}."
-        ),
+        "kind": definition.get("kind") or KIND_RECONCILIATION,
+        "description": _describe(definition),
         "outputTable": f"{definition['output_schema']}.{definition['output_table']}",
         "frequency": definition["frequency"],
         "lastRunAt": definition["last_run_at"],
@@ -160,6 +217,12 @@ async def read_report(
     """
     definition = await repository.get_by_report_key(report_key)
     plan = repository.definition_to_plan(definition)
+    kind = definition.get("kind") or KIND_RECONCILIATION
+
+    # The statuses THIS kind can produce. Validating against the reconciliation
+    # four regardless silently dropped the filter for a sequence rule, so
+    # ?status=GAP returned every row instead of the gaps.
+    allowed = ALL_STATUSES if kind == KIND_RECONCILIATION else SEQUENCE_STATUSES
 
     latest = await repository.latest_succeeded_execution(definition["rule_id"])
     if latest is None:
@@ -167,6 +230,8 @@ async def read_report(
             "key": report_key,
             "title": definition["report_title"],
             "ruleId": definition["rule_id"],
+            "kind": kind,
+            "statuses": list(allowed),
             "columns": [*plan.business_columns, "status"],
             "rows": [],
             "total": 0,
@@ -175,11 +240,14 @@ async def read_report(
             "executionId": None,
             "executedAt": None,
             "note": definition["last_error"]
-            or "This reconciliation has not completed a run yet.",
+            or "This rule has not completed a run yet.",
         }
 
-    if status and status not in ALL_STATUSES:
-        status = None
+    if status and status not in allowed:
+        raise ValidationFailedError(
+            f"Unknown status '{status}' for this report.",
+            details={"allowed": list(allowed)},
+        )
 
     page = await engine.fetch_results(
         plan,
@@ -192,6 +260,10 @@ async def read_report(
         "key": report_key,
         "title": definition["report_title"],
         "ruleId": definition["rule_id"],
+        "kind": kind,
+        # The status vocabulary differs by kind, and the view renders filter
+        # chips from it — so it is served with the page rather than assumed.
+        "statuses": list(allowed),
         "executionId": str(latest["execution_id"]),
         "executedAt": latest["started_at"],
         "statusFilter": status,

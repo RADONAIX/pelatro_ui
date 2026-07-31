@@ -83,6 +83,56 @@ class TableRef:
         return f"{self.schema}.{self.table}"
 
 
+# Single-table rule statuses. Distinct from the reconciliation four because a
+# sequence answers a different question: not "do both sides agree" but "is
+# anything missing from the run".
+STATUS_PRESENT = "PRESENT"
+STATUS_GAP = "GAP"
+STATUS_DUPLICATE = "DUPLICATE"
+
+SEQUENCE_STATUSES = (STATUS_PRESENT, STATUS_GAP, STATUS_DUPLICATE)
+
+KIND_RECONCILIATION = "reconciliation"
+KIND_SEQUENCE = "sequence"
+KIND_DUPLICATE = "duplicate"
+
+
+@dataclass(frozen=True)
+class SequenceOptions:
+    """How to read a counter out of the selected attribute.
+
+    ``group_index`` is the 0-based index of the digit run that carries the
+    counter, inferred from the data at compile time — a filename like
+    AIROUTPUTCDR_4011_ATAIR800_0000_20260728-150704.ber holds five digit runs
+    and only the third is the sequence. ``None`` means the value IS the number
+    (a file_sequence_number column), so nothing is extracted.
+
+    ``partition_column`` is what the counter increments within. When absent the
+    partition is derived by masking the counter out of the value itself, which
+    is right for AIR (one series per production file) and wrong for SDP (whose
+    filenames embed a per-file timestamp) — hence the explicit option.
+    """
+
+    column: str
+    group_index: int | None
+    partition_column: str | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "column": self.column,
+            "groupIndex": self.group_index,
+            "partitionColumn": self.partition_column,
+        }
+
+    @staticmethod
+    def from_dict(raw: dict) -> "SequenceOptions":
+        return SequenceOptions(
+            column=raw["column"],
+            group_index=raw.get("groupIndex"),
+            partition_column=raw.get("partitionColumn"),
+        )
+
+
 @dataclass(frozen=True)
 class ReconPlan:
     """Everything needed to build, populate and report on one reconciliation."""
@@ -96,6 +146,11 @@ class ReconPlan:
 
     keys: list[ColumnPair]
     metrics: list[ColumnPair]
+
+    #: Which generator builds this plan's SQL. Single-table kinds leave keys and
+    #: metrics empty and carry their parameters on `sequence` instead.
+    kind: str = KIND_RECONCILIATION
+    sequence: SequenceOptions | None = None
 
     #: Percent tolerance for numeric metric pairs. 0 = exact.
     tolerance_pct: float = 0.0

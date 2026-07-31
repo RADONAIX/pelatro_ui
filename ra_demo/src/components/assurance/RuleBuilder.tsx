@@ -14,6 +14,8 @@ import {
 } from "@/lib/assurance/rule-authoring";
 import {
   fetchAssuranceTables,
+  fetchFileLogColumns,
+  fetchFileLogs,
   fetchTableColumns,
   type AssuranceTable,
 } from "@/lib/assurance/metadata-api";
@@ -96,6 +98,10 @@ export function RuleBuilder({
 
   const fields = CATEGORY_PARAMS[category];
   const isComparison = COMPARISON_CATEGORIES.has(category);
+  // Sequence and Duplicate run over ONE table — a file log — rather than
+  // comparing two, so they get the file-log picker instead of the free-text
+  // parameter boxes. The backend compiles them from the same three values.
+  const isFileLogRule = FILE_LOG_CATEGORIES.has(category);
   const isMultiple = comparison.mode === "Multiple";
 
   // A comparison rule needs enough to actually run: both tables, at least one
@@ -109,7 +115,13 @@ export function RuleBuilder({
       comparison.metrics.some((m) => m.left && (!isMultiple || m.right)) &&
       (!isMultiple || comparison.keys.some((k) => k.left && k.right)));
 
-  const valid = name.trim().length > 1 && comparisonValid;
+  // A file-log rule needs the table and the attribute carrying the counter;
+  // "Partition by" is genuinely optional (without it the series is derived from
+  // the value itself), so it is not required here.
+  const fileLogValid =
+    !isFileLogRule || (!!params.table && !!params.sequenceField);
+
+  const valid = name.trim().length > 1 && comparisonValid && fileLogValid;
 
   // Seeds every field from the rule under edit, or back to defaults when
   // authoring. Runs on close as well as on open, so a cancelled edit leaves no
@@ -324,12 +336,16 @@ export function RuleBuilder({
             <ComparisonEditor assurance={app.id} value={comparison} onChange={setComparison} />
           )}
 
+          {isFileLogRule && (
+            <FileLogEditor category={category} value={params} onChange={setParams} />
+          )}
+
           <div className="rounded-md border border-border p-3">
             <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               {category} parameters
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
-              {fields.map((f) => (
+              {fields.filter((f) => !isFileLogRule).map((f) => (
                 <div key={f.key} className="space-y-1.5">
                   <Label htmlFor={`p-${f.key}`}>{f.label}</Label>
                   <Input
@@ -768,3 +784,165 @@ function CaseRoutingEditor({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// File-log editor — the authoring surface for Sequence and Duplicate rules.
+//
+// These run over ONE table: an AIR/SDP raw or processed file log. The author
+// picks the log, the attribute whose values carry the counter, and optionally
+// what that counter runs within.
+//
+// The counter usually isn't a column of its own — it sits inside a filename
+// among a stream id, a node number and a timestamp. Which of those is the
+// counter is inferred by the backend from the real values at compile time, so
+// nothing here has to ask for a regex or an offset.
+// ---------------------------------------------------------------------------
+
+/** Categories authored against a file log rather than a pair of tables. */
+export const FILE_LOG_CATEGORIES: ReadonlySet<RuleCategory> = new Set<RuleCategory>([
+  "Sequence",
+  "Duplicate",
+]);
+
+function FileLogEditor({
+  category,
+  value,
+  onChange,
+}: {
+  category: RuleCategory;
+  value: Record<string, string>;
+  onChange: (next: Record<string, string>) => void;
+}) {
+  const [tables, setTables] = useState<AssuranceTable[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [loadingColumns, setLoadingColumns] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchFileLogs()
+      .then((t) => !cancelled && setTables(t))
+      .catch(() => !cancelled && setTables([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const table = value.table ?? "";
+
+  // Attributes come from the selected log, so a rule can never name a column
+  // that isn't there.
+  useEffect(() => {
+    if (!table) {
+      setColumns([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingColumns(true);
+    fetchFileLogColumns(table)
+      .then((c) => !cancelled && setColumns(c))
+      .catch(() => !cancelled && setColumns([]))
+      .finally(() => !cancelled && setLoadingColumns(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [table]);
+
+  const set = (key: string, next: string) => onChange({ ...value, [key]: next });
+
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        {category === "Duplicate" ? "Duplicate source" : "Sequence source"}
+      </p>
+
+      <div className="space-y-1.5">
+        <Label>File log</Label>
+        <Select
+          value={table}
+          onValueChange={(v) =>
+            // Changing the log invalidates the attributes chosen from the old
+            // one, so they are cleared rather than left pointing at columns
+            // that may not exist here.
+            onChange({ ...value, table: v, sequenceField: "", partitionBy: "" })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Pick an AIR or SDP file log" />
+          </SelectTrigger>
+          <SelectContent>
+            {tables.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>
+            {category === "Duplicate" ? "Attribute to check" : "Sequence attribute"}
+          </Label>
+          <Select
+            value={value.sequenceField ?? ""}
+            onValueChange={(v) => set("sequenceField", v)}
+            disabled={!table || loadingColumns}
+          >
+            <SelectTrigger>
+              <SelectValue
+                placeholder={
+                  !table
+                    ? "Pick a file log first"
+                    : loadingColumns
+                      ? "Loading…"
+                      : "e.g. filename"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {columns.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Partition by (optional)</Label>
+          <Select
+            value={value.partitionBy || NONE_VALUE}
+            onValueChange={(v) => set("partitionBy", v === NONE_VALUE ? "" : v)}
+            disabled={!table || loadingColumns}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Derive from the value itself" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE_VALUE}>Derive from the value itself</SelectItem>
+              {columns.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {category === "Duplicate"
+          ? "Reports every value that appears more than once in the selected log."
+          : "Reports each value in the series and flags where it jumps — " +
+            "…_0000_, …_0001_, …_0003_ marks 0002 missing. The counter is found " +
+            "inside the value automatically; set Partition by when one log holds " +
+            "several independent series (per node, for example)."}
+      </p>
+    </div>
+  );
+}
+
+/** Radix Select forbids an empty item value, so "no partition" needs a token. */
+const NONE_VALUE = "__none__";

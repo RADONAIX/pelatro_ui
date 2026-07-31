@@ -28,10 +28,16 @@ import { cn } from "@/lib/utils";
 const PAGE_SIZE = 25;
 
 const STATUS_TONE: Record<ReconStatus, string> = {
+  // Reconciliation outcomes.
   MATCH: "border-success/40 bg-success/10 text-success",
   MISMATCH: "border-destructive/40 bg-destructive/10 text-destructive",
   RAW_MISSING: "border-warning/40 bg-warning/15 text-warning-foreground",
   PROCESSED_MISSING: "border-info/40 bg-info/10 text-info",
+  // Sequence outcomes. A gap is the finding to act on, so it takes the
+  // destructive tone that MISMATCH has on the other kind.
+  PRESENT: "border-success/40 bg-success/10 text-success",
+  GAP: "border-destructive/40 bg-destructive/10 text-destructive",
+  DUPLICATE: "border-warning/40 bg-warning/15 text-warning-foreground",
 };
 
 function StatusPill({ value }: { value: string }) {
@@ -102,6 +108,11 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
   useEffect(() => {
     setOffset(0);
   }, [reportKey, status]);
+
+  // The status vocabulary depends on the rule's kind, so it is taken from the
+  // page rather than assumed; the reconciliation four are the fallback for a
+  // report served before the server carried them.
+  const statuses = (page?.statuses ?? RECON_STATUSES) as readonly ReconStatus[];
 
   const latest = executions[0];
   const columns = page?.columns ?? [];
@@ -201,7 +212,7 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
         >
           All
         </button>
-        {RECON_STATUSES.map((s) => (
+        {statuses.map((s) => (
           <button
             key={s}
             onClick={() => setStatus(s)}

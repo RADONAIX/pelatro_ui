@@ -19,6 +19,8 @@ import {
   type FilterState,
 } from "@/components/reports/ReportFilters";
 import { useT } from "@/lib/i18n";
+import { isReconReportKey } from "@/lib/assurance/reconciliation-api";
+import { ReconReportView } from "@/components/reports/ReconReportView";
 import { ratingApi, ratingError } from "@/lib/rating/api";
 import {
   RATING_REPORTS,
@@ -52,7 +54,39 @@ interface ReportSchema {
 }
 const EMPTY_SCHEMA: ReportSchema = { columns: [], metas: [] };
 
+/**
+ * Under the Rating scope the sidebar's report catalog points at THIS route, so
+ * a generated reconciliation report opens here rather than at /reports. Without
+ * this branch its key fell through resolveRatingReportKey to the default rating
+ * report, which is why the page showed "Daily Reconciliation Summary — no data"
+ * instead of the reconciliation.
+ *
+ * Branching in a component that calls no other hooks keeps either page's hooks
+ * out of a conditional.
+ */
 function RatingReportsPage() {
+  const { report } = Route.useSearch();
+  if (isReconReportKey(report)) return <ReconRatingReportPage reportKey={report!} />;
+  return <RatingCatalogReportsPage />;
+}
+
+function ReconRatingReportPage({ reportKey }: { reportKey: string }) {
+  const t = useT();
+  return (
+    <AppShell>
+      <PageHeader
+        title={t("Reports")}
+        description={t(
+          "Generated reconciliation — the comparison keys and metrics this rule selected, with the status of every record.",
+        )}
+        info={t("Generated automatically from a Reconciliation rule in Controls.")}
+      />
+      <ReconReportView reportKey={reportKey} />
+    </AppShell>
+  );
+}
+
+function RatingCatalogReportsPage() {
   const t = useT();
   const { report } = Route.useSearch();
   const selected = resolveRatingReportKey(report);

@@ -14,7 +14,15 @@ from typing import Any
 from app.core.config import settings
 from app.core.errors import NotFoundError
 from app.integrations import ra_postgres
-from app.modules.reconciliation.plan import Column, ColumnPair, ReconPlan, TableRef
+from app.modules.reconciliation.sequence import SEQUENCE_COLUMNS
+from app.modules.reconciliation.plan import (
+    KIND_RECONCILIATION,
+    Column,
+    ColumnPair,
+    ReconPlan,
+    SequenceOptions,
+    TableRef,
+)
 
 _DEFINITION_COLUMNS = """
     rule_id, assurance_id, source_database,
@@ -22,7 +30,7 @@ _DEFINITION_COLUMNS = """
     join_keys, metrics, tolerance_pct, frequency, severity,
     output_schema, output_table, generated_ddl, generated_sql,
     report_key, report_title, status, last_error,
-    last_run_at, next_run_at, last_execution_id, created_at, updated_at
+    last_run_at, next_run_at, last_execution_id, kind, options, created_at, updated_at
 """
 
 # How often each frequency repeats. "Real-time" is deliberately the tightest
@@ -71,14 +79,15 @@ async def upsert_definition(plan: ReconPlan) -> dict[str, Any]:
             left_schema, left_table, right_schema, right_table,
             join_keys, metrics, tolerance_pct, frequency, severity,
             output_schema, output_table, generated_ddl, generated_sql,
-            report_key, report_title, status, next_run_at
+            report_key, report_title, status, next_run_at, kind, options
         ) VALUES (
             :rule_id, :assurance_id, :source_database,
             :left_schema, :left_table, :right_schema, :right_table,
             CAST(:join_keys AS jsonb), CAST(:metrics AS jsonb), :tolerance_pct,
             :frequency, :severity,
             :output_schema, :output_table, :generated_ddl, :generated_sql,
-            :report_key, :report_title, 'Pending', :next_run_at
+            :report_key, :report_title, 'Pending', :next_run_at,
+            :kind, CAST(:options AS jsonb)
         )
         ON CONFLICT (rule_id) DO UPDATE SET
             assurance_id = EXCLUDED.assurance_id,
@@ -97,7 +106,9 @@ async def upsert_definition(plan: ReconPlan) -> dict[str, Any]:
             generated_ddl = EXCLUDED.generated_ddl,
             generated_sql = EXCLUDED.generated_sql,
             report_title = EXCLUDED.report_title,
-            next_run_at = EXCLUDED.next_run_at
+            next_run_at = EXCLUDED.next_run_at,
+            kind = EXCLUDED.kind,
+            options = EXCLUDED.options
         RETURNING {_DEFINITION_COLUMNS}
         """,
         {
@@ -144,6 +155,8 @@ async def upsert_definition(plan: ReconPlan) -> dict[str, Any]:
             "report_key": plan.report_key,
             "report_title": plan.report_title,
             "next_run_at": next_run_after(plan.frequency),
+            "kind": plan.kind,
+            "options": json.dumps(plan.sequence.as_dict() if plan.sequence else {}),
         },
     )
     return rows[0]
@@ -348,16 +361,29 @@ def definition_to_plan(row: dict[str, Any]) -> ReconPlan:
                     data_type=p.get("rightType", "text"),
                     numeric=_looks_numeric(p.get("rightType", "text")),
                 ),
-                output_left=p.get("outputLeft", p["left"]),
-                output_right=p.get("outputRight", p["right"]),
+                output_left=p.get("outputLeft") or p["left"],
+                output_right=p.get("outputRight") or p["right"],
             )
             for p in raw
         ]
 
     keys = pairs(row["join_keys"])
     metrics = pairs(row["metrics"])
-    business = [c for p in keys for c in (p.output_left, p.output_right)]
-    business += [c for p in metrics for c in (p.output_left, p.output_right)]
+
+    # A single-table rule carries no pairs; its output shape is fixed and its
+    # parameters live in `options`.
+    kind = row.get("kind") or KIND_RECONCILIATION
+    options = row.get("options") or {}
+    sequence_options = (
+        SequenceOptions.from_dict(options)
+        if kind != KIND_RECONCILIATION and options.get("column")
+        else None
+    )
+    if sequence_options is not None:
+        business = list(SEQUENCE_COLUMNS)
+    else:
+        business = [c for p in keys for c in (p.output_left, p.output_right)]
+        business += [c for p in metrics for c in (p.output_left, p.output_right)]
 
     return ReconPlan(
         rule_id=row["rule_id"],
@@ -367,6 +393,8 @@ def definition_to_plan(row: dict[str, Any]) -> ReconPlan:
         right=TableRef(row["source_database"], row["right_schema"], row["right_table"]),
         keys=keys,
         metrics=metrics,
+        kind=kind,
+        sequence=sequence_options,
         tolerance_pct=float(row["tolerance_pct"] or 0),
         output_schema=row["output_schema"],
         output_table=row["output_table"],

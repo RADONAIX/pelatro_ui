@@ -22,10 +22,12 @@ from app.core.errors import ValidationFailedError
 from app.core.logging import get_logger
 from app.integrations import ra_postgres
 from app.modules.meta import metadata_catalog
+from app.modules.reconciliation import sequence
 from app.modules.reconciliation.plan import (
     Column,
     ColumnPair,
     ReconPlan,
+    SequenceOptions,
     TableRef,
 )
 
@@ -260,6 +262,88 @@ async def compile_rule(
         right=right.qualified,
         keys=len(keys),
         metrics=len(metrics),
+        output=plan.output_qualified,
+    )
+    return plan
+
+
+async def compile_sequence_rule(
+    *,
+    rule_id: str,
+    assurance_id: str,
+    rule_name: str,
+    kind: str,
+    params: dict | None,
+    frequency: str = "Daily",
+    severity: str = "medium",
+) -> ReconPlan:
+    """A Sequence or Duplicate rule -> a validated plan.
+
+    Single-table: the author picks one file log, the attribute carrying the
+    counter, and optionally what it runs within. The file log is resolved
+    against the fixed allow-list rather than the assurance's scope — the same
+    four logs answer this question for every assurance.
+    """
+    params = params or {}
+    table_id = (params.get("table") or "").strip()
+    column = (params.get("sequenceField") or "").strip()
+    partition = (params.get("partitionBy") or "").strip() or None
+
+    if not table_id:
+        raise ValidationFailedError("Pick the file log this rule runs over.")
+    if not column:
+        raise ValidationFailedError(
+            "Pick the attribute whose values carry the sequence."
+        )
+
+    _, schema, table = parse_table_id(table_id)
+    if not metadata_catalog.is_file_log(schema, table):
+        raise ValidationFailedError(
+            f"{schema}.{table} is not a file log. Sequence and Duplicate rules run "
+            "over the AIR/SDP raw and processed file logs."
+        )
+    ref = TableRef(
+        database=metadata_catalog.file_log_database(), schema=schema, table=table
+    )
+
+    columns = await _columns_of(ref)
+    _pick(columns, column, "sequence", ref)
+    if partition:
+        _pick(columns, partition, "partition", ref)
+
+    # Inferred from the real values, then frozen into the stored SQL.
+    group_index = await sequence.infer_group_index(ref, column)
+    options = SequenceOptions(
+        column=column, group_index=group_index, partition_column=partition
+    )
+
+    plan = ReconPlan(
+        rule_id=rule_id,
+        assurance_id=assurance_id,
+        rule_name=rule_name,
+        left=ref,
+        # One side only; repeated so the stored definition's NOT NULLs hold.
+        right=ref,
+        keys=[],
+        metrics=[],
+        kind=kind,
+        sequence=options,
+        output_schema=settings.recon_output_schema,
+        output_table=output_table_name(rule_id),
+        report_key=report_key_for(rule_id),
+        report_title=rule_name.strip() or rule_id,
+        frequency=frequency,
+        severity=severity,
+        business_columns=list(sequence.SEQUENCE_COLUMNS),
+    )
+    log.info(
+        "sequence_compiled",
+        rule_id=rule_id,
+        kind=kind,
+        table=ref.qualified,
+        column=column,
+        group_index=group_index,
+        partition=partition,
         output=plan.output_qualified,
     )
     return plan
