@@ -1,4 +1,12 @@
-import { ChevronLeft, ChevronRight, Database, LayoutGrid, Settings2, ShieldCheck } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Database,
+  LayoutDashboard,
+  LayoutGrid,
+  Settings2,
+  ShieldCheck,
+} from "lucide-react";
 import { useMemo } from "react";
 import { useT } from "@/lib/i18n";
 import { Tooltip } from "@/components/ui-kit/Tooltip";
@@ -45,6 +53,19 @@ const OVERVIEW_ITEM: RatingNavItem = {
   phase: 1,
 };
 
+/**
+ * The cross-assurance dashboard. Sits above the scoped modules because it is
+ * scope-INDEPENDENT: it covers every assurance at once, where everything below
+ * it re-targets with the header switcher. Injected outside the scope filter, so
+ * it is present under all eight scopes.
+ */
+const ENTERPRISE_DASHBOARD_ITEM: RatingNavItem = {
+  to: "/dashboard",
+  label: "Enterprise Dashboard",
+  icon: LayoutDashboard,
+  phase: 1,
+};
+
 export function Sidebar({
   collapsed,
   onToggle,
@@ -86,6 +107,7 @@ export function Sidebar({
         : RATING_NAV.filter((item) => !RATING_ONLY_PATHS.has(item.to));
     return [
       OVERVIEW_ITEM,
+      ENTERPRISE_DASHBOARD_ITEM,
       ...base.map((item) => (item.to === OPERATIONS_PATH ? operations : item)),
     ];
   }, [scope, operations]);
@@ -97,6 +119,7 @@ export function Sidebar({
       new Set([
         ...RATING_AVAILABLE_PATHS,
         OVERVIEW_ITEM.to,
+        ENTERPRISE_DASHBOARD_ITEM.to,
         ...(operations.children ?? []).map((c) => c.to),
       ]),
     [operations],

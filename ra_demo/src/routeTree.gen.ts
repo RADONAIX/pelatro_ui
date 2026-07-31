@@ -25,6 +25,7 @@ import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as DownloadsRouteImport } from './routes/downloads'
 import { Route as DatabaseConnectionsRouteImport } from './routes/database-connections'
 import { Route as DataSourcesRouteImport } from './routes/data-sources'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as CasesRouteImport } from './routes/cases'
 import { Route as AuditLogsRouteImport } from './routes/audit-logs'
 import { Route as AccessDeniedRouteImport } from './routes/access-denied'
@@ -134,6 +135,11 @@ const DatabaseConnectionsRoute = DatabaseConnectionsRouteImport.update({
 const DataSourcesRoute = DataSourcesRouteImport.update({
   id: '/data-sources',
   path: '/data-sources',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CasesRoute = CasesRouteImport.update({
@@ -293,6 +299,7 @@ export interface FileRoutesByFullPath {
   '/access-denied': typeof AccessDeniedRoute
   '/audit-logs': typeof AuditLogsRoute
   '/cases': typeof CasesRoute
+  '/dashboard': typeof DashboardRoute
   '/data-sources': typeof DataSourcesRoute
   '/database-connections': typeof DatabaseConnectionsRoute
   '/downloads': typeof DownloadsRoute
@@ -341,6 +348,7 @@ export interface FileRoutesByTo {
   '/access-denied': typeof AccessDeniedRoute
   '/audit-logs': typeof AuditLogsRoute
   '/cases': typeof CasesRoute
+  '/dashboard': typeof DashboardRoute
   '/data-sources': typeof DataSourcesRoute
   '/database-connections': typeof DatabaseConnectionsRoute
   '/downloads': typeof DownloadsRoute
@@ -389,6 +397,7 @@ export interface FileRoutesById {
   '/access-denied': typeof AccessDeniedRoute
   '/audit-logs': typeof AuditLogsRoute
   '/cases': typeof CasesRoute
+  '/dashboard': typeof DashboardRoute
   '/data-sources': typeof DataSourcesRoute
   '/database-connections': typeof DatabaseConnectionsRoute
   '/downloads': typeof DownloadsRoute
@@ -439,6 +448,7 @@ export interface FileRouteTypes {
     | '/access-denied'
     | '/audit-logs'
     | '/cases'
+    | '/dashboard'
     | '/data-sources'
     | '/database-connections'
     | '/downloads'
@@ -487,6 +497,7 @@ export interface FileRouteTypes {
     | '/access-denied'
     | '/audit-logs'
     | '/cases'
+    | '/dashboard'
     | '/data-sources'
     | '/database-connections'
     | '/downloads'
@@ -534,6 +545,7 @@ export interface FileRouteTypes {
     | '/access-denied'
     | '/audit-logs'
     | '/cases'
+    | '/dashboard'
     | '/data-sources'
     | '/database-connections'
     | '/downloads'
@@ -583,6 +595,7 @@ export interface RootRouteChildren {
   AccessDeniedRoute: typeof AccessDeniedRoute
   AuditLogsRoute: typeof AuditLogsRoute
   CasesRoute: typeof CasesRoute
+  DashboardRoute: typeof DashboardRoute
   DataSourcesRoute: typeof DataSourcesRoute
   DatabaseConnectionsRoute: typeof DatabaseConnectionsRoute
   DownloadsRoute: typeof DownloadsRoute
@@ -737,6 +750,13 @@ declare module '@tanstack/react-router' {
       path: '/data-sources'
       fullPath: '/data-sources'
       preLoaderRoute: typeof DataSourcesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cases': {
@@ -971,6 +991,7 @@ const rootRouteChildren: RootRouteChildren = {
   AccessDeniedRoute: AccessDeniedRoute,
   AuditLogsRoute: AuditLogsRoute,
   CasesRoute: CasesRoute,
+  DashboardRoute: DashboardRoute,
   DataSourcesRoute: DataSourcesRoute,
   DatabaseConnectionsRoute: DatabaseConnectionsRoute,
   DownloadsRoute: DownloadsRoute,
