@@ -1,0 +1,16 @@
+# Auto-provision dashboards from a folder on disk.
+# Copied to /etc/grafana/provisioning/dashboards/ ; point `path` at where the
+# JSON dashboards are deployed (see deploy/grafana/dashboards/*.json).
+apiVersion: 1
+
+providers:
+  - name: RADONAIX
+    orgId: 1
+    folder: RADONAIX
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

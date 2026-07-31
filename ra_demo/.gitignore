@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.output/
+.nitro/
+.tanstack/
+
+# Environment — never commit real secrets.
+# .env.production holds only relative base paths (no hosts, no secrets) and is
+# required for a correct production build, so it is committed — same as the
+# production UI repos.
+.env
+.env.*
+!.env.example
+!.env.production
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Abandoned theme backups kept locally, not part of the app
+*.teal-backup
+
+# The ServerOps monitoring app is a SEPARATE Next.js service that happens to live
+# in this folder. It is deployed on its own (systemd, behind nginx at /serverops/)
+# and its .env holds real SSH credentials — it must never enter this public repo.
+Complete_Monitoring_NoAuth/

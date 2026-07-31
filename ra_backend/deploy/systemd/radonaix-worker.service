@@ -1,0 +1,25 @@
+[Unit]
+Description=RADONAIX backend Celery worker (bulk exports)
+# redis unit is `redis.service` on RHEL/Rocky and `redis-server.service` on
+# Debian/Ubuntu — list both; a missing unit here is a harmless no-op.
+After=network-online.target redis.service redis-server.service
+Wants=network-online.target redis.service redis-server.service
+# `systemctl stop|restart radonaix.target` propagates to this service.
+PartOf=radonaix.target
+
+[Service]
+Type=exec
+User=radonaix
+Group=radonaix
+WorkingDirectory=/opt/radonaix/backend
+EnvironmentFile=/opt/radonaix/backend/.env
+# -Q exports: consume the dedicated export queue. --concurrency=8: up to 8
+# export parts (multi-part jobs) stream in parallel across the 16 vCPUs; with
+# gzip level 1 this keeps CPU busy without starving the API. Tune to the box.
+ExecStart=/opt/radonaix/backend/.venv/bin/celery -A app.workers.celery_app:celery worker \
+    -Q exports --loglevel=info --concurrency=8
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

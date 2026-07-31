@@ -1,0 +1,13 @@
+# Grafana alerting — email contact point. Copied to /etc/grafana/provisioning/alerting/.
+# Delivery uses the [smtp] block in grafana.ini + GF_SMTP_PASSWORD (Gmail app password).
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: radonaix-ops
+    receivers:
+      - uid: radonaix-ops-email
+        type: email
+        settings:
+          addresses: manojbm@platum-ai.co.in;kalyanm@platum-ai.co.in
+          singleEmail: true

@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RuleImport version="1.0" operator="DemoTel" sourceSystem="XML_IMPORT">
+
+    <!-- ====================================================== -->
+    <!-- Rule 1 : Prepaid Local Voice -->
+    <!-- ====================================================== -->
+    <Rule>
+        <RuleId>R001</RuleId>
+        <RuleName>Prepaid Local Voice Peak</RuleName>
+        <ChargingMode>PREPAID</ChargingMode>
+        <RuleType>BASE_TARIFF</RuleType>
+        <Service>VOICE</Service>
+
+        <Product>PREPAID_A</Product>
+        <Offer>STANDARD</Offer>
+        <TariffPlan>PP_VOICE_PLAN</TariffPlan>
+
+        <Conditions>
+            <Condition field="destination_zone" operator="EQUALS">LOCAL_ONNET</Condition>
+            <Condition field="time_band" operator="EQUALS">PEAK</Condition>
+        </Conditions>
+
+        <Actions>
+            <Action type="SET_RATE">
+                <Value>0.10</Value>
+                <Currency>GBP</Currency>
+                <Unit>MINUTE</Unit>
+            </Action>
+        </Actions>
+
+        <Priority>100</Priority>
+
+        <EffectiveFrom>2026-08-01</EffectiveFrom>
+        <EffectiveTo>2027-12-31</EffectiveTo>
+
+    </Rule>
+
+    <!-- ====================================================== -->
+    <!-- Rule 2 -->
+    <!-- ====================================================== -->
+
+    <Rule>
+        <RuleId>R002</RuleId>
+        <RuleName>Prepaid Local Voice Off Peak</RuleName>
+
+        <ChargingMode>PREPAID</ChargingMode>
+
+        <RuleType>BASE_TARIFF</RuleType>
+
+        <Service>VOICE</Service>
+
+        <Product>PREPAID_A</Product>
+
+        <Conditions>
+            <Condition field="destination_zone">LOCAL_ONNET</Condition>
+            <Condition field="time_band">OFFPEAK</Condition>
+        </Conditions>
+
+        <Actions>
+            <Action type="SET_RATE">
+                <Value>0.07</Value>
+                <Currency>GBP</Currency>
+                <Unit>MINUTE</Unit>
+            </Action>
+        </Actions>
+
+        <Priority>90</Priority>
+
+    </Rule>
+
+    <!-- ====================================================== -->
+    <!-- Rule 3 -->
+    <!-- ====================================================== -->
+
+    <Rule>
+
+        <RuleId>R003</RuleId>
+
+        <RuleName>International Voice</RuleName>
+
+        <ChargingMode>PREPAID</ChargingMode>
+
+        <RuleType>BASE_TARIFF</RuleType>
+
+        <Service>VOICE</Service>
+
+        <Product>PREPAID_A</Product>
+
+        <Conditions>
+
+            <Condition field="destination_zone">
+                INTERNATIONAL_ZONE1
+            </Condition>
+
+        </Conditions>
+
+        <Actions>
+
+            <Action type="SET_RATE">
+                <Value>0.60</Value>
+                <Currency>GBP</Currency>
+                <Unit>MINUTE</Unit>
+            </Action>
+
+        </Actions>
+
+        <Priority>200</Priority>
+
+    </Rule>
+
+    <!-- ====================================================== -->
+    <!-- Rule 4 -->
+    <!-- ====================================================== -->
+
+    <Rule>
+
+        <RuleId>R004</RuleId>
+
+        <RuleName>Weekend Voice Discount</RuleName>
+
+        <ChargingMode>PREPAID</ChargingMode>
+
+        <RuleType>DISCOUNT</RuleType>
+
+        <Service>VOICE</Service>
+
+        <Product>PREPAID_A</Product>
+
+        <Conditions>
+
+            <Condition field="day_type">WEEKEND</Condition>
+
+        </Conditions>
+
+        <Actions>
+
+            <Action type="APPLY_DISCOUNT">
+
+                <Percentage>20</Percentage>
+
+            </Action>
+
+        </Actions>
+
+        <Priority>300</Priority>
+
+    </Rule>
+
+    <!-- ====================================================== -->
+    <!-- Rule 5 -->
+    <!-- ====================================================== -->
+
+    <Rule>
+
+        <RuleId>R005</RuleId>
+
+        <RuleName>VAT 15 Percent</RuleName>
+
+        <ChargingMode>BOTH</ChargingMode>
+
+        <RuleType>TAX</RuleType>
+
+        <Service>ALL</Service>
+
+        <Conditions/>
+
+        <Actions>
+
+            <Action type="APPLY_TAX">
+
+                <Percentage>15</Percentage>
+
+            </Action>
+
+        </Actions>
+
+        <Priority>1000</Priority>
+
+    </Rule>
+
+    <!-- ====================================================== -->
+    <!-- Rule 6 -->
+    <!-- ====================================================== -->
+
+    <Rule>
+
+        <RuleId>R006</RuleId>
+
+        <RuleName>60 Second Pulse</RuleName>
+
+        <ChargingMode>BOTH</ChargingMode>
+
+        <RuleType>PULSE</RuleType>
+
+        <Service>VOICE</Service>
+
+        <Conditions/>
+
+        <Actions>
+
+            <Action type="SET_PULSE">
+
+                <PulseSeconds>60</PulseSeconds>
+
+            </Action>
+
+        </Actions>
+
+    </Rule>
+
+    <!-- ====================================================== -->
+    <!-- Rule 7 -->
+    <!-- ====================================================== -->
+
+    <Rule>
+
+        <RuleId>R007</RuleId>
+
+        <RuleName>Round To Two Decimals</RuleName>
+
+        <ChargingMode>BOTH</ChargingMode>
+
+        <RuleType>ROUNDING</RuleType>
+
+        <Service>ALL</Service>
+
+        <Conditions/>
+
+        <Actions>
+
+            <Action type="ROUND_AMOUNT">
+
+                <Scale>2</Scale>
+
+            </Action>
+
+        </Actions>
+
+    </Rule>
+
+    <!-- ====================================================== -->
+    <!-- Rule 8 -->
+    <!-- ====================================================== -->
+
+    <Rule>
+
+        <RuleId>R008</RuleId>
+
+        <RuleName>Postpaid Voice Rate</RuleName>
+
+        <ChargingMode>POSTPAID</ChargingMode>
+
+        <RuleType>BASE_TARIFF</RuleType>
+
+        <Service>VOICE</Service>
+
+        <Product>POSTPAID_GOLD</Product>
+
+        <Conditions>
+
+            <Condition field="destination_zone">
+                LOCAL_OFFNET
+            </Condition>
+
+        </Conditions>
+
+        <Actions>
+
+            <Action type="SET_RATE">
+
+                <Value>0.08</Value>
+
+                <Currency>GBP</Currency>
+
+                <Unit>MINUTE</Unit>
+
+            </Action>
+
+        </Actions>
+
+    </Rule>
+
+    <!-- ====================================================== -->
+    <!-- Rule 9 -->
+    <!-- ====================================================== -->
+
+    <Rule>
+
+        <RuleId>R009</RuleId>
+
+        <RuleName>Monthly Rental</RuleName>
+
+        <ChargingMode>POSTPAID</ChargingMode>
+
+        <RuleType>RECURRING_CHARGE</RuleType>
+
+        <Service>VOICE</Service>
+
+        <Product>POSTPAID_GOLD</Product>
+
+        <Conditions/>
+
+        <Actions>
+
+            <Action type="ADD_RECURRING_CHARGE">
+
+                <Value>25</Value>
+
+                <Currency>GBP</Currency>
+
+            </Action>
+
+        </Actions>
+
+    </Rule>
+
+    <!-- ====================================================== -->
+    <!-- Rule 10 -->
+    <!-- ====================================================== -->
+
+    <Rule>
+
+        <RuleId>R010</RuleId>
+
+        <RuleName>Night Data Promotion</RuleName>
+
+        <ChargingMode>PREPAID</ChargingMode>
+
+        <RuleType>PROMOTION</RuleType>
+
+        <Service>DATA</Service>
+
+        <Product>PREPAID_A</Product>
+
+        <Conditions>
+
+            <Condition field="time_band">
+                NIGHT
+            </Condition>
+
+        </Conditions>
+
+        <Actions>
+
+            <Action type="APPLY_DISCOUNT">
+
+                <Percentage>50</Percentage>
+
+            </Action>
+
+        </Actions>
+
+    </Rule>
+
+</RuleImport>

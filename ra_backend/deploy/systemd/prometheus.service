@@ -1,0 +1,23 @@
+[Unit]
+Description=Prometheus (metrics collection)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=prometheus
+Group=prometheus
+# Bind to localhost only — reached through Grafana, never exposed publicly.
+ExecStart=/opt/monitoring/prometheus/prometheus \
+    --config.file=/etc/prometheus/prometheus.yml \
+    --storage.tsdb.path=/var/lib/prometheus/data \
+    --storage.tsdb.retention.time=30d \
+    --web.listen-address=127.0.0.1:9090
+Restart=always
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

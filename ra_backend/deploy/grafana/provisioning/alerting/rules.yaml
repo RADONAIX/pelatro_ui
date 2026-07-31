@@ -1,0 +1,191 @@
+# Grafana alerting — system threshold rules (evaluated against the Prometheus
+# datasource, uid: prometheus). Each rule: query (A) -> reduce last (B) ->
+# threshold (C). Tune thresholds / `for` durations here.
+#
+# MULTI-SERVER: expressions group `by (server)` (the Prometheus scrape label) so
+# each monitored host alerts INDEPENDENTLY and the notification names which one
+# via {{ $labels.server }}. mem/disk are already per-series (carry the label);
+# CPU and PG-connections are grouped explicitly. Adding a server needs no rule
+# change — a new `server` value just yields another alert instance.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: RADONAIX system
+    folder: RADONAIX
+    interval: 1m
+    rules:
+      - uid: radonaix-high-cpu
+        title: High CPU usage (>85%)
+        condition: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU on {{ $labels.server }}"
+          description: "CPU busy is above 85% for 5m on {{ $labels.server }} (value: {{ printf \"%.1f\" $values.B.Value }}%)."
+        noDataState: OK
+        execErrState: Alerting
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              expr: "100 - avg by (server) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100"
+              range: true
+              instant: false
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, reducer: last, expression: A }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+
+      - uid: radonaix-high-memory
+        title: High memory usage (>85%)
+        condition: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory on {{ $labels.server }}"
+          description: "Memory used is above 85% for 5m on {{ $labels.server }} (value: {{ printf \"%.1f\" $values.B.Value }}%)."
+        noDataState: OK
+        execErrState: Alerting
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              expr: "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)"
+              range: true
+              instant: false
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, reducer: last, expression: A }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+
+      - uid: radonaix-high-disk
+        title: High disk usage on / (>85%)
+        condition: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Root filesystem above 85% on {{ $labels.server }}"
+          description: "Disk usage on / is above 85% on {{ $labels.server }} (value: {{ printf \"%.1f\" $values.B.Value }}%)."
+        noDataState: OK
+        execErrState: Alerting
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              expr: "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"})"
+              range: true
+              instant: false
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, reducer: last, expression: A }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+
+      - uid: radonaix-target-down
+        title: Monitoring target down
+        condition: C
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Monitoring target down: {{ $labels.job }} {{ $labels.server }}"
+          description: "Prometheus target {{ $labels.job }} ({{ $labels.instance }}{{ if $labels.server }}, {{ $labels.server }}{{ end }}) has been unreachable for 3m."
+        noDataState: OK
+        execErrState: Alerting
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              expr: "up{job=~\"node|radonaix_api|postgres|prometheus\"}"
+              range: true
+              instant: false
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, reducer: last, expression: A }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: radonaix-pg-connections
+        title: Postgres connections near limit (>80%)
+        condition: C
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres connections near limit on {{ $labels.server }}"
+          description: "Connections are {{ printf \"%.0f\" $values.B.Value }}% of max_connections on {{ $labels.server }} (>80% for 5m)."
+        noDataState: OK
+        execErrState: Alerting
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              editorMode: code
+              expr: "100 * sum by (server) (pg_stat_database_numbackends) / max by (server) (pg_settings_max_connections)"
+              range: true
+              instant: false
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, reducer: last, expression: A }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [80] }

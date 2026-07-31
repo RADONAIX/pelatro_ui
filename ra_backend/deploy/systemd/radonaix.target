@@ -1,0 +1,30 @@
+# RADONAIX — start/stop/restart the whole backend as ONE unit.
+#
+#   sudo cp deploy/systemd/radonaix.target /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now radonaix.target     # API + worker (+ redis) on boot
+#
+#   systemctl restart radonaix.target               # restarts API *and* worker
+#   systemctl stop    radonaix.target               # stops both
+#   systemctl status  radonaix.target
+#
+# Why a target and not "the API spawns celery": process supervision belongs to
+# systemd. It gives each service its own restart policy, logs, exit codes and
+# resource limits; an app that forks its own worker loses all of that (and a
+# `systemctl restart radonaix-api` would silently orphan the worker).
+#
+# `Wants=` (not `Requires=`) so a worker that fails to start never takes the API
+# down with it — a dead worker degrades exports, it doesn't break the app.
+# The services declare `PartOf=radonaix.target`, so stop/restart propagate here.
+#
+# If EXPORTS_ENABLED=false you don't need the worker at all: enable
+# radonaix-api.service on its own instead of this target.
+
+[Unit]
+Description=RADONAIX backend (API + export worker)
+After=network-online.target
+Wants=network-online.target
+Wants=radonaix-api.service radonaix-worker.service
+
+[Install]
+WantedBy=multi-user.target

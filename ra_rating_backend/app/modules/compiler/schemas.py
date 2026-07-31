@@ -1,0 +1,187 @@
+"""Schemas for validation, compilation and snapshot management."""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.modules.rules.schemas import ValidationIssue
+
+
+class Base(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RuleSetValidationRequest(Base):
+    #: Omit to validate the whole approved estate.
+    rule_set_id: str | None = None
+    include_coverage: bool = True
+
+
+class RuleSetValidationReport(BaseModel):
+    checked_at: datetime
+    rule_count: int
+    error_count: int
+    warning_count: int
+    #: True when a compile would be allowed.
+    can_compile: bool
+    structural: list[ValidationIssue] = Field(default_factory=list)
+    conflicts: list[ValidationIssue] = Field(default_factory=list)
+    coverage: list[ValidationIssue] = Field(default_factory=list)
+
+
+class CompileRequest(Base):
+    name: str = Field(min_length=1, max_length=255)
+    description: str = ""
+    rule_set_id: str | None = None
+    #: Compile despite conflict errors. Recorded on the snapshot — an override
+    #: has to be visible afterwards, not just at the moment it was used.
+    force: bool = False
+
+
+class SnapshotSummary(Base):
+    id: str
+    version: int
+    name: str
+    description: str
+    status: str
+    rule_set_id: str | None
+    effective_from: date
+    effective_to: date | None
+    rule_count: int
+    product_count: int
+    checksum: str
+    compiled_by_name: str | None
+    activated_at: datetime | None
+    superseded_at: datetime | None
+    published_to_clickhouse: bool
+    created_at: datetime
+
+
+class SnapshotDetail(SnapshotSummary):
+    stats: dict[str, Any]
+    issues: list[Any]
+
+
+class ExecutableRuleRead(Base):
+    id: str
+    rule_id: str
+    rule_key: str
+    rule_version: int
+    rule_name: str
+    rule_type: str
+    execution_stage: str
+    stage_order: int
+    priority: int
+    specificity: int
+    stacking_policy: str
+    conflict_group: str | None
+    effective_from: date
+    effective_to: date | None
+    currency_code: str | None
+    signature: str
+    dimension_sets: dict[str, Any]
+    predicates: list[Any]
+    actions: list[Any]
+
+
+class SnapshotDiffEntry(BaseModel):
+    rule_key: str
+    change: str  # ADDED | REMOVED | CHANGED | UNCHANGED
+    from_version: int | None = None
+    to_version: int | None = None
+    details: list[str] = Field(default_factory=list)
+
+
+class SnapshotDiff(BaseModel):
+    from_snapshot: int
+    to_snapshot: int
+    added: int
+    removed: int
+    changed: int
+    unchanged: int
+    identical: bool
+    entries: list[SnapshotDiffEntry]
+
+
+class ActivateRequest(Base):
+    comment: str = ""
+
+
+# --- Snapshot Details screen -------------------------------------------------
+# Everything below is additive. No existing schema changes shape, so the screens
+# built against the endpoints above keep working unaltered.
+
+
+class CompileReportRead(BaseModel):
+    """Section 4 — is this snapshot safe to activate, and what did compiling say."""
+
+    snapshot_id: str
+    version: int
+    status: str
+    checksum: str
+    rule_count: int
+    compiled_by: str | None = None
+    compiled_at: datetime | None = None
+    #: Compiled past blocking issues. Surfaced first — an override only visible
+    #: in a log is one nobody sees.
+    forced: bool = False
+    error_count: int = 0
+    warning_count: int = 0
+    safe_to_activate: bool = False
+    #: Grouped by cause, so forty findings from one check read as one problem.
+    grouped_issues: list[dict[str, Any]] = Field(default_factory=list)
+    issues: list[Any] = Field(default_factory=list)
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
+class StageGroupRead(BaseModel):
+    """Section 7 — the pipeline, stage by stage, in the order the engine walks it."""
+
+    stage: str
+    stage_order: int
+    rule_count: int
+    #: A sample, ranked the way selection ranks them: specificity then priority.
+    #: Answers "why did that rule win?" without loading four thousand rows.
+    rules: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ReachRead(BaseModel):
+    dimension: str
+    label: str
+    values: list[str] = Field(default_factory=list)
+    #: Rules that pin nothing on this dimension, and so reach everything on it.
+    #: Counted separately because forty wildcard rules are a wider blast radius
+    #: than twelve that name one entity each.
+    wildcard_rules: int = 0
+
+
+class TrafficImpactRead(BaseModel):
+    window_days: int
+    from_date: date
+    to_date: date
+    #: False when there is no rated traffic at all in the window — a different
+    #: statement from an impact of zero, and the screen must not conflate them.
+    has_traffic: bool = False
+    rated_events: int = 0
+    affected_events: int = 0
+    distinct_subscribers: int = 0
+    affected_charge: Decimal = Decimal("0")
+    currency: str = ""
+    top_rules: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ImpactRead(BaseModel):
+    """Section 5 — what activating this would touch, measured not estimated."""
+
+    snapshot_id: str
+    version: int
+    rule_count: int
+    reach: list[ReachRead] = Field(default_factory=list)
+    traffic: TrafficImpactRead | None = None
+    changed_rule_keys: list[str] = Field(default_factory=list)
+    compared_with_version: int | None = None
+    note: str = ""

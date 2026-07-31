@@ -1,0 +1,49 @@
+# --- Secrets (never commit) ---
+.env
+.env.*
+!.env.example
+!.env*.example
+
+# Nested repos' git dirs, incl. any renamed-aside copy (a bare `.git` is
+# auto-ignored, a renamed one is not).
+.git_tmp_hold/
+.git.bak/
+
+# --- Dependencies ---
+node_modules/
+venv/
+.venv/
+env/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Build output ---
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# --- Archives / large artifacts ---
+*.zip
+*.tar
+*.tar.gz
+
+# --- Logs & local data ---
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

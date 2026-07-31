@@ -1,0 +1,32 @@
+[
+  {
+    "targets": ["10.200.37.133:9187"],
+    "labels": {
+      "service": "postgres",
+      "server": "app-air",
+      "display": "App 1 · AIR Postgres (133)",
+      "role": "app",
+      "feed": "air"
+    }
+  },
+  {
+    "targets": ["10.200.36.69:9187"],
+    "labels": {
+      "service": "postgres",
+      "server": "ch-master",
+      "display": "Database · Postgres (69)",
+      "role": "db",
+      "tier": "master"
+    }
+  },
+  {
+    "targets": ["127.0.0.1:9187"],
+    "labels": {
+      "service": "postgres",
+      "server": "rpt-master",
+      "display": "Report Server 1 · app_db (142)",
+      "role": "report",
+      "tier": "master"
+    }
+  }
+]

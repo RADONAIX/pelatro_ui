@@ -1,0 +1,45 @@
+# RADONaix Rating Assurance API — gunicorn + uvicorn workers on :8010.
+#
+# Deliberately a separate unit from radonaix-api.service: restarting or
+# rolling back the rating service must never interrupt the existing API.
+#
+#   sudo cp deploy/systemd/radonaix-rating-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now radonaix-rating-api
+
+[Unit]
+Description=RADONaix Rating Assurance API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=radonaix
+Group=radonaix
+WorkingDirectory=/opt/radonaix/ra_rating_backend
+EnvironmentFile=/opt/radonaix/ra_rating_backend/.env
+
+# Worker count is modest by design: each worker holds its own Postgres pool for
+# BOTH the rating schema and the read-only identity connection, and those share
+# a server with the existing API. Raise it only alongside max_connections.
+ExecStart=/opt/radonaix/ra_rating_backend/venv/bin/gunicorn app.main:app \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --workers 3 \
+    --bind 127.0.0.1:8010 \
+    --timeout 600 \
+    --graceful-timeout 60 \
+    --access-logfile - \
+    --error-logfile -
+
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

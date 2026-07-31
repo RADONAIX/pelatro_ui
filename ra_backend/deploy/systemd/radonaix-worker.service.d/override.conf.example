@@ -1,0 +1,25 @@
+# Per-server overrides for radonaix-worker — copy to a real drop-in, then it
+# survives every `git pull` (the base unit is never edited):
+#
+#   sudo mkdir -p /etc/systemd/system/radonaix-worker.service.d
+#   sudo cp deploy/systemd/radonaix-worker.service.d/override.conf.example \
+#           /etc/systemd/system/radonaix-worker.service.d/override.conf
+#   sudo systemctl daemon-reload && sudo systemctl restart radonaix-worker
+#
+# A drop-in only adds/overrides the keys it lists; everything else comes from the
+# base unit. Mirror whatever radonaix-api runs as, so both can read/write REPORTS_DIR.
+
+[Service]
+# This host runs the services as root (no dedicated `radonaix` user). The base unit
+# ships User=radonaix for the standard "create a service user" install; override here.
+# NOTE: without this, systemd fails the unit with "Failed to determine user
+# credentials: No such process" when the radonaix user doesn't exist.
+User=root
+Group=root
+
+# Export parts streamed in parallel on THIS host. Tune to the box (16 vCPU → 8 is
+# a reasonable default). Lower it if the worker starves the API or the DB pools.
+# ExecStart must be cleared before being redefined in a drop-in.
+# ExecStart=
+# ExecStart=/opt/radonaix/backend/.venv/bin/celery -A app.workers.celery_app:celery worker \
+#     -Q exports --loglevel=info --concurrency=4

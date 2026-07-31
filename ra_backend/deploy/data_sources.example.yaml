@@ -1,0 +1,35 @@
+# Optional data-source overrides — only needed for a stream that BREAKS the
+# naming convention (odd schema name, non-standard table names). A conventional
+# source needs NOTHING here; just add its key to DATA_STREAMS in the .env.
+#
+# Enable by setting in the backend .env:
+#   DATA_SOURCES_FILE=/opt/radonaix/backend/data_sources.yaml
+#
+# Convention (derived from the stream key `k`, all overridable below):
+#   schema:      {k}_schema                         (pipeline logs + report_batch_log)
+#   bi_schema:   bi_reports                         (file seq/exception/summary reports)
+#   recon_record_type: coalesce(raw_record_type, proc_record_type)
+#   raw_file_variant:  refill                       ("refill" | "omit")
+#   tables:
+#     record_seq_raw:        {k}_raw_record_sequence_check
+#     record_seq_processed:  {k}_processed_record_sequence_check
+#     file_seq_check:        {k}_file_seq_check
+#     file_exception:        {k}_file_exception_report
+#     file_summary:          {k}_file_summary
+#     reconciliation:        {k}_reconciliation
+#     batch_log_raw:         {k}_raw_batch_log
+#     batch_log_processed:   {k}_processed_batch_log
+#     file_log_raw:          {k}_raw_file_log
+#     file_log_processed:    {k}_processed_file_log
+
+streams:
+  # Example: a new "CCN" source that deviates from the convention.
+  ccn:
+    label: CCN                    # default would be "CCN" already; shown for clarity
+    schema: ccn_pipeline          # its pipeline/report_batch_log schema
+    recon_record_type: record_type  # this stream has a unified record_type (like AIR)
+    raw_file_variant: refill
+    tables:
+      # only list the tables that DON'T follow the {key}_* convention:
+      file_seq_check: ccn_fseq_check
+      reconciliation: ccn_recon
