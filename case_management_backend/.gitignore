@@ -1,0 +1,10 @@
+# Runtime artefacts — written by the running service, never source.
+#
+# The PID file in particular was tracked: it changes on every restart, and a
+# committed value naming a process that is not this service is worse than no
+# file at all (anything doing `kill $(cat …pid)` would signal the wrong one).
+# It also blocked `git pull` for anyone whose service was running, because the
+# incoming version would have overwritten their live one.
+*.pid
+logs/
+.env
