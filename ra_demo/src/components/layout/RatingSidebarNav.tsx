@@ -11,11 +11,6 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useT } from "@/lib/i18n";
-import {
-  RATING_REPORTS,
-  RATING_REPORT_GROUPS,
-  DEFAULT_RATING_REPORT_KEY,
-} from "@/lib/rating/reportsCatalog";
 import type { ReportCatalog } from "@/lib/reportCatalogs";
 import {
   RATING_NAV,
@@ -81,12 +76,17 @@ const REPORT_GROUP_ICON: Record<string, RatingNavChild["icon"]> = {
   Correlation: GitCompareArrows,
 };
 
-/** The rating suite, unless the Sidebar passes another scope's catalog. */
+/**
+ * Safety net for a render without a catalog prop — the Sidebar always passes
+ * one. Empty rather than the old rating suite: reports are generated per
+ * assurance now, so a hardcoded list here would reintroduce exactly the fixed
+ * menu that was removed.
+ */
 const DEFAULT_REPORT_CATALOG: ReportCatalog = {
   path: "/rating/reports",
-  entries: RATING_REPORTS,
-  groups: RATING_REPORT_GROUPS,
-  defaultKey: DEFAULT_RATING_REPORT_KEY,
+  entries: [],
+  groups: [],
+  defaultKey: "",
 };
 
 export function RatingSidebarNav({

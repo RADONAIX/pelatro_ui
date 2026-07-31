@@ -1,16 +1,17 @@
 // ---------------------------------------------------------------------------
 // Which report catalog the sidebar shows, per Assurance Scope.
 //
-// There are two report suites in the product and they are not interchangeable:
+// The menu lists ONLY generated reports — one per compiled Reconciliation rule,
+// fetched per assurance. Authoring a rule adds its report; deleting the rule
+// removes it. Nothing here is declared.
 //
-//   Rating Assurance → /rating/reports — the rating-service reports (Daily
-//     Reconciliation Summary, Product Leakage, Undercharge/Overcharge, Tax
-//     Reconciliation …). Backed by ra_rating_backend; they only mean something
-//     for the rating domain.
-//
-//   Every other scope → /reports — the platform reports (Record/File Sequence
-//     Check, File Exception, File Summary, AIR/SDP Reconciliation, Report Batch
-//     Log). Backed by the main API and meaningful under any assurance.
+// The hardcoded suites that used to fill this menu (Record/File Sequence Check,
+// AIR/SDP Reconciliation, Daily Reconciliation Summary, Undercharge/Overcharge
+// …) are gone from it: they were fixed lists that no rule produced, so they said
+// nothing about what this assurance actually checks. Their modules are NOT
+// deleted — src/lib/reportsCatalog.ts and src/lib/rating/reportsCatalog.ts still
+// supply column schemas and key resolution to the two report pages, which is why
+// those keys still render if one is opened directly by URL.
 //
 // Both pages read the same `?report=<key>` search param, so the sidebar renders
 // one accordion either way and only the catalog behind it changes.
@@ -18,17 +19,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { fetchReconReports } from "@/lib/assurance/reconciliation-api";
-import {
-  REPORTS,
-  GROUPS,
-  DEFAULT_REPORT_KEY,
-  type ReportEntry,
-} from "@/lib/reportsCatalog";
-import {
-  RATING_REPORTS,
-  RATING_REPORT_GROUPS,
-  DEFAULT_RATING_REPORT_KEY,
-} from "@/lib/rating/reportsCatalog";
+import type { ReportEntry } from "@/lib/reportsCatalog";
 
 export interface ReportCatalog {
   /** The page the catalog's entries link into. */
@@ -41,18 +32,19 @@ export interface ReportCatalog {
   defaultKey: string;
 }
 
+// Only `path` differs now — the entries are whatever useReportCatalog fetches.
 export const RATING_REPORT_CATALOG: ReportCatalog = {
   path: "/rating/reports",
-  entries: RATING_REPORTS,
-  groups: RATING_REPORT_GROUPS,
-  defaultKey: DEFAULT_RATING_REPORT_KEY,
+  entries: [],
+  groups: [],
+  defaultKey: "",
 };
 
 export const PLATFORM_REPORT_CATALOG: ReportCatalog = {
   path: "/reports",
-  entries: REPORTS,
-  groups: GROUPS,
-  defaultKey: DEFAULT_REPORT_KEY,
+  entries: [],
+  groups: [],
+  defaultKey: "",
 };
 
 /** The catalog for an Assurance Scope id. */
@@ -114,8 +106,11 @@ export function useReportCatalog(scope: string): ReportCatalog {
         ? base
         : {
             ...base,
-            entries: [...base.entries, ...generated],
-            groups: [...base.groups, RECON_GROUP],
+            entries: generated,
+            groups: [RECON_GROUP],
+            // Highlight the first report that can actually be opened; a rule
+            // still awaiting its first run is listed but not linkable.
+            defaultKey: generated.find((r) => r.available)?.key ?? "",
           },
     [base, generated],
   );
