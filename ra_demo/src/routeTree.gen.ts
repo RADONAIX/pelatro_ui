@@ -40,6 +40,7 @@ import { Route as RatingReconciliationRouteImport } from './routes/rating/reconc
 import { Route as RatingPipelineRouteImport } from './routes/rating/pipeline'
 import { Route as RatingMonitoringRouteImport } from './routes/rating/monitoring'
 import { Route as RatingLeakageRouteImport } from './routes/rating/leakage'
+import { Route as RatingExecutionRouteImport } from './routes/rating/execution'
 import { Route as RatingExceptionsRouteImport } from './routes/rating/exceptions'
 import { Route as RatingConnectorsRouteImport } from './routes/rating/connectors'
 import { Route as RatingCatalogRouteImport } from './routes/rating/catalog'
@@ -213,6 +214,11 @@ const RatingLeakageRoute = RatingLeakageRouteImport.update({
   path: '/rating/leakage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RatingExecutionRoute = RatingExecutionRouteImport.update({
+  id: '/rating/execution',
+  path: '/rating/execution',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RatingExceptionsRoute = RatingExceptionsRouteImport.update({
   id: '/rating/exceptions',
   path: '/rating/exceptions',
@@ -329,6 +335,7 @@ export interface FileRoutesByFullPath {
   '/rating/catalog': typeof RatingCatalogRoute
   '/rating/connectors': typeof RatingConnectorsRoute
   '/rating/exceptions': typeof RatingExceptionsRoute
+  '/rating/execution': typeof RatingExecutionRoute
   '/rating/leakage': typeof RatingLeakageRoute
   '/rating/monitoring': typeof RatingMonitoringRoute
   '/rating/pipeline': typeof RatingPipelineRoute
@@ -378,6 +385,7 @@ export interface FileRoutesByTo {
   '/rating/catalog': typeof RatingCatalogRoute
   '/rating/connectors': typeof RatingConnectorsRoute
   '/rating/exceptions': typeof RatingExceptionsRoute
+  '/rating/execution': typeof RatingExecutionRoute
   '/rating/leakage': typeof RatingLeakageRoute
   '/rating/monitoring': typeof RatingMonitoringRoute
   '/rating/pipeline': typeof RatingPipelineRoute
@@ -429,6 +437,7 @@ export interface FileRoutesById {
   '/rating/catalog': typeof RatingCatalogRoute
   '/rating/connectors': typeof RatingConnectorsRoute
   '/rating/exceptions': typeof RatingExceptionsRoute
+  '/rating/execution': typeof RatingExecutionRoute
   '/rating/leakage': typeof RatingLeakageRoute
   '/rating/monitoring': typeof RatingMonitoringRoute
   '/rating/pipeline': typeof RatingPipelineRoute
@@ -481,6 +490,7 @@ export interface FileRouteTypes {
     | '/rating/catalog'
     | '/rating/connectors'
     | '/rating/exceptions'
+    | '/rating/execution'
     | '/rating/leakage'
     | '/rating/monitoring'
     | '/rating/pipeline'
@@ -530,6 +540,7 @@ export interface FileRouteTypes {
     | '/rating/catalog'
     | '/rating/connectors'
     | '/rating/exceptions'
+    | '/rating/execution'
     | '/rating/leakage'
     | '/rating/monitoring'
     | '/rating/pipeline'
@@ -580,6 +591,7 @@ export interface FileRouteTypes {
     | '/rating/catalog'
     | '/rating/connectors'
     | '/rating/exceptions'
+    | '/rating/execution'
     | '/rating/leakage'
     | '/rating/monitoring'
     | '/rating/pipeline'
@@ -631,6 +643,7 @@ export interface RootRouteChildren {
   RatingCatalogRoute: typeof RatingCatalogRoute
   RatingConnectorsRoute: typeof RatingConnectorsRoute
   RatingExceptionsRoute: typeof RatingExceptionsRoute
+  RatingExecutionRoute: typeof RatingExecutionRoute
   RatingLeakageRoute: typeof RatingLeakageRoute
   RatingMonitoringRoute: typeof RatingMonitoringRoute
   RatingPipelineRoute: typeof RatingPipelineRoute
@@ -871,6 +884,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RatingLeakageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/rating/execution': {
+      id: '/rating/execution'
+      path: '/rating/execution'
+      fullPath: '/rating/execution'
+      preLoaderRoute: typeof RatingExecutionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rating/exceptions': {
       id: '/rating/exceptions'
       path: '/rating/exceptions'
@@ -1035,6 +1055,7 @@ const rootRouteChildren: RootRouteChildren = {
   RatingCatalogRoute: RatingCatalogRoute,
   RatingConnectorsRoute: RatingConnectorsRoute,
   RatingExceptionsRoute: RatingExceptionsRoute,
+  RatingExecutionRoute: RatingExecutionRoute,
   RatingLeakageRoute: RatingLeakageRoute,
   RatingMonitoringRoute: RatingMonitoringRoute,
   RatingPipelineRoute: RatingPipelineRoute,

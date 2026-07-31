@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Library,
   Package,
+  PlayCircle,
   Plug,
   ShieldCheck,
 } from "lucide-react";
@@ -65,6 +66,15 @@ export const RATING_NAV: RatingNavItem[] = [
     to: "/pipelines",
     label: "Pipelines & Job Monitor",
     icon: Activity,
+    phase: 1,
+  },
+  // Runs the rating reconciliation against the mirror database. Distinct from
+  // Pipelines & Job Monitor above, which watches AIR/SDP batch ingestion — that
+  // is what arrived, this is what was done with it.
+  {
+    to: "/rating/execution",
+    label: "Assurance Execution",
+    icon: PlayCircle,
     phase: 1,
   },
   {

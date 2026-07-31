@@ -65,7 +65,11 @@ async def kpis(
             _filtered(
                 select(
                     func.count().label("total"),
-                    _MATCHED.label("matched"),
+                    # SUM over zero rows is NULL, not 0 — an empty window (no
+                    # results for the date range or run) made int(row.matched)
+                    # raise and the whole endpoint 500. Coalesced like every
+                    # other aggregate here.
+                    func.coalesce(_MATCHED, 0).label("matched"),
                     func.coalesce(func.sum(RatingResult.expected_final_charge), 0).label(
                         "expected"
                     ),
@@ -136,7 +140,7 @@ async def revenue_trend(
                 select(
                     RatingResult.event_date,
                     func.count().label("cdrs"),
-                    _MATCHED.label("matched"),
+                    func.coalesce(_MATCHED, 0).label("matched"),
                     func.coalesce(func.sum(RatingResult.expected_final_charge), 0).label(
                         "expected"
                     ),
@@ -205,7 +209,7 @@ async def leakage_breakdown(
                 select(
                     column.label("key"),
                     func.count().label("cdrs"),
-                    _MATCHED.label("matched"),
+                    func.coalesce(_MATCHED, 0).label("matched"),
                     func.coalesce(func.sum(RatingResult.expected_final_charge), 0).label(
                         "expected"
                     ),

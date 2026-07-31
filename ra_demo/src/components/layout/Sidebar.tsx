@@ -46,7 +46,11 @@ import { useReportCatalog } from "@/lib/reportCatalogs";
  * for Usage, Billing, Partner and the rest, so listing them under those scopes
  * would offer rating screens for an app they say nothing about.
  */
-const RATING_ONLY_PATHS = new Set(["/rating/rules", "/rating/catalog"]);
+const RATING_ONLY_PATHS = new Set([
+  "/rating/rules",
+  "/rating/catalog",
+  "/rating/execution",
+]);
 
 const RATING_SCOPE_ID = "rating";
 
