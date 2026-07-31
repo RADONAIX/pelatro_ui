@@ -185,7 +185,7 @@ export const APPS: AppMetadata[] = [
     controlCount: 180,
     summary: "Assures invoice accuracy, tax correctness and bill cycle completeness.",
     entities: ["Invoice", "Bill Cycle", "Account", "Tax", "Payment"],
-    ruleTypes: ["Calculation", "Aggregation", "Duplicate", "Comparison"],
+    ruleTypes: ["Calculation", "Aggregation", "Duplicate", "Comparison", "Reconciliation"],
     ruleLibrary: [
       { name: "Invoice Total ≠ Sum of Rated Charges", category: "Aggregation", severity: "critical" },
     ],

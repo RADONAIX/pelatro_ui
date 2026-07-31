@@ -13,6 +13,7 @@ from app.core.deps import Principal, require
 from app.core.rbac import PermKey
 from app.integrations import airflow, broker, clickhouse, ra_postgres
 from app.modules.assurance import service as assurance_service
+from app.modules.meta import metadata_catalog
 
 router = APIRouter(tags=["meta"])
 
@@ -33,6 +34,31 @@ class DashboardKpis(BaseModel):
     matchRate: float
     openLeakageRisk: float
     criticalAlerts: int
+
+
+@router.get(
+    "/metadata/tables",
+    response_model=list[metadata_catalog.TableMetadata],
+)
+async def metadata_tables(
+    assurance: str,
+) -> list[metadata_catalog.TableMetadata]:
+    return await metadata_catalog.list_tables(assurance)
+
+
+@router.get(
+    "/metadata/tables/{schema_name}/{table_name}/columns",
+    response_model=list[metadata_catalog.ColumnMetadata],
+)
+async def metadata_columns(
+    schema_name: str,
+    table_name: str,
+    assurance: str,
+    database: str | None = None,
+) -> list[metadata_catalog.ColumnMetadata]:
+    return await metadata_catalog.list_columns(
+        assurance, schema_name, table_name, database_name=database
+    )
 
 
 @router.get("/health", response_model=Health)

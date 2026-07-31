@@ -15,7 +15,7 @@ import { RatingSidebarNav } from "@/components/layout/RatingSidebarNav";
 import { AssuranceSidebarNav } from "@/components/layout/AssuranceSidebarNav";
 import { RATING_NAV, RATING_AVAILABLE_PATHS, type RatingNavItem } from "@/lib/rating/nav";
 import { useAssuranceScope } from "@/lib/assuranceScope";
-import { catalogForScope } from "@/lib/reportCatalogs";
+import { useReportCatalog } from "@/lib/reportCatalogs";
 
 // ---------------------------------------------------------------------------
 // One continuous module list, from two sources:
@@ -136,8 +136,11 @@ export function Sidebar({
   // those scopes get the platform catalog (/reports) instead. The nav entry
   // keeps its label and position either way — only its target moves.
   // No assurance selected yet resolves to the platform suite, which is what
-  // every non-rating scope gets anyway.
-  const reports = catalogForScope(scope ?? "");
+  // every non-rating scope gets anyway. Generated reconciliation reports are
+  // merged in on top, so a rule authored in Controls shows up in this menu
+  // without anything else being touched — and with no scope selected there is
+  // no assurance to scope them to, so only the static suite is listed.
+  const reports = useReportCatalog(scope ?? "");
 
   const navItems = useMemo(() => {
     const base =

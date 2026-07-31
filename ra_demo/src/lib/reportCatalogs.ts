@@ -16,6 +16,8 @@
 // one accordion either way and only the catalog behind it changes.
 // ---------------------------------------------------------------------------
 
+import { useEffect, useMemo, useState } from "react";
+import { fetchReconReports } from "@/lib/assurance/reconciliation-api";
 import {
   REPORTS,
   GROUPS,
@@ -57,3 +59,67 @@ export const PLATFORM_REPORT_CATALOG: ReportCatalog = {
 export function catalogForScope(scope: string): ReportCatalog {
   return scope === "rating" ? RATING_REPORT_CATALOG : PLATFORM_REPORT_CATALOG;
 }
+
+/**
+ * The scope's catalog with its generated reconciliation reports merged in.
+ *
+ * One entry per compiled Reconciliation rule for this assurance, under a
+ * "Reconciliation" heading below the declared groups. Nothing about them is
+ * hardcoded — the list is whatever the backend has compiled, so authoring a
+ * rule adds a report and deleting the rule removes it.
+ *
+ * A rule that has not completed a run yet comes back `available: false`, which
+ * renders as the existing disabled "soon" row rather than a link into an empty
+ * table.
+ */
+export function useReportCatalog(scope: string): ReportCatalog {
+  const base = catalogForScope(scope);
+  const [generated, setGenerated] = useState<ReportEntry[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    // With no assurance selected there is nothing to scope generated reports
+    // to, and an unscoped fetch would list every assurance's — so it is skipped
+    // rather than sent without a filter.
+    if (!scope) {
+      setGenerated([]);
+      return;
+    }
+    fetchReconReports(scope)
+      .then((reports) => {
+        if (cancelled) return;
+        setGenerated(
+          reports.map((r) => ({
+            key: r.key,
+            title: r.title,
+            group: RECON_GROUP,
+            available: r.available,
+            description: r.description,
+          })),
+        );
+      })
+      // A reporting outage must not empty the menu of the static reports that
+      // are still perfectly readable, so this failure is silent by design.
+      .catch(() => {
+        if (!cancelled) setGenerated([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope]);
+
+  return useMemo(
+    () =>
+      generated.length === 0
+        ? base
+        : {
+            ...base,
+            entries: [...base.entries, ...generated],
+            groups: [...base.groups, RECON_GROUP],
+          },
+    [base, generated],
+  );
+}
+
+/** Heading the generated reports sit under, in both catalogs. */
+export const RECON_GROUP = "Reconciliation Rules";

@@ -21,7 +21,8 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<RuleCategory | "All">("All");
   const [raising, setRaising] = useState<string | null>(null);
-  const { rules, addRule, removeRule, toggleState } = useCustomRules(app.id);
+  const { rules, loading, error, reload, addRule, editRule, removeRule, toggleState } =
+    useCustomRules(app.id);
 
   // Raising is manual: nothing evaluates a rule, so a breach can't trigger this
   // itself. The real evaluator posts the same identity to /api/cases/ingest
@@ -111,15 +112,22 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
    * be retried by raising a case, which registers on demand. The warning says
    * what is lost meanwhile rather than failing silently.
    */
-  const createRule = (draft: Parameters<typeof addRule>[0]) => {
-    const saved = addRule(draft, app.prefix);
-    resolveModule(saved)
-      .then((mod) => register(saved, mod))
-      .catch((e: Error) => {
-        toast.warning(`${saved.id} saved, but not registered for cases`, {
-          description: e.message,
-        });
+  const createRule = async (draft: Parameters<typeof addRule>[0]) => {
+    // The save is awaited now that rules are persisted server-side rather than
+    // written to localStorage: the id, and for a Reconciliation rule the
+    // compiled output, only exist once the server has answered.
+    const saved = await addRule(draft, app.prefix);
+    toast.success(`${saved.id} saved`, { description: `Stored against ${app.name}.` });
+
+    // Case registration stays best-effort and off the critical path: if it
+    // fails the rule still exists, and raising a case registers on demand.
+    try {
+      await register(saved, await resolveModule(saved));
+    } catch (e) {
+      toast.warning(`${saved.id} saved, but not registered for cases`, {
+        description: (e as Error).message,
       });
+    }
   };
 
   const raiseCase = async (rule: CustomRule) => {
@@ -190,9 +198,18 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
         title="Rule Explorer"
         description={`${app.controlCount} controls provisioned for ${app.name} · range ${app.controlRange}`}
         actions={
-          <RuleBuilder app={app} onCreate={createRule} />
+          <RuleBuilder app={app} onSubmit={createRule} />
         }
       />
+
+      {error && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+          <span>Could not load authored rules: {error}</span>
+          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={reload}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
         <Panel title="Rule categories in scope">
@@ -222,7 +239,11 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
 
         <Panel
           title="Controls"
-          subtitle={`${rows.length + customRows.length} of ${all.length + rules.length} shown`}
+          subtitle={
+            loading
+              ? "loading authored rules…"
+              : `${rows.length + customRows.length} of ${all.length + rules.length} shown`
+          }
         >
           <div className="border-b border-border p-3">
             <Input
@@ -266,7 +287,29 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
                       <Tag value={r.state} />
                     </td>
                     <td className="px-4 py-2 text-right text-xs">
-                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => toggleState(r.id)}>
+                      <RuleBuilder
+                        app={app}
+                        rule={r}
+                        onSubmit={async (draft) => {
+                          await editRule(r.id, draft);
+                          toast.success(`${r.id} updated`);
+                        }}
+                        trigger={
+                          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
+                            Edit
+                          </Button>
+                        }
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        onClick={() =>
+                          toggleState(r.id).catch((e: Error) =>
+                            toast.error(`Could not change ${r.id}`, { description: e.message }),
+                          )
+                        }
+                      >
                         {r.state === "Active" ? "Pause" : "Activate"}
                       </Button>
                       {r.caseRouting?.raiseCase && (
@@ -281,7 +324,16 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
                           {raising === r.id ? "Raising…" : "Raise case"}
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-destructive" onClick={() => removeRule(r.id)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs text-destructive"
+                        onClick={() =>
+                          removeRule(r.id).catch((e: Error) =>
+                            toast.error(`Could not delete ${r.id}`, { description: e.message }),
+                          )
+                        }
+                      >
                         Delete
                       </Button>
                     </td>

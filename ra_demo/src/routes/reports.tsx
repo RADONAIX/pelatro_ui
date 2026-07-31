@@ -11,6 +11,8 @@ import {
   type CreateExportPayload,
 } from "@/services";
 import { REPORTS, resolveReportKey } from "@/lib/reportsCatalog";
+import { isReconReportKey } from "@/lib/assurance/reconciliation-api";
+import { ReconReportView } from "@/components/reports/ReconReportView";
 import {
   ReportFilters,
   TablePagination,
@@ -53,7 +55,41 @@ export const Route = createFileRoute("/reports")({
   component: ReportsPage,
 });
 
+/**
+ * Two kinds of report share this route.
+ *
+ * A platform report is backed by a declared SQL report in the backend catalog
+ * and gets the filter/exporter machinery below. A generated reconciliation
+ * report is one compiled rule: its columns come from that rule, so it renders
+ * through its own view rather than being forced through a filter schema that
+ * does not describe it.
+ *
+ * The branch is here, in a component that calls no other hooks, so neither
+ * branch's hooks are ever conditionally executed.
+ */
 function ReportsPage() {
+  const { report } = Route.useSearch();
+  if (isReconReportKey(report)) return <ReconReportPage reportKey={report!} />;
+  return <PlatformReportsPage />;
+}
+
+function ReconReportPage({ reportKey }: { reportKey: string }) {
+  const t = useT();
+  return (
+    <AppShell>
+      <PageHeader
+        title={t("Reports")}
+        description={t(
+          "Generated reconciliation — the comparison keys and metrics this rule selected, with the status of every record.",
+        )}
+        info={t("Generated automatically from a Reconciliation rule in Controls.")}
+      />
+      <ReconReportView reportKey={reportKey} />
+    </AppShell>
+  );
+}
+
+function PlatformReportsPage() {
   const t = useT();
   const navigate = useNavigate();
   const downloads = useDownloads();

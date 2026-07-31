@@ -1,4 +1,4 @@
-"""Read-only access to ra-platform's Postgres (rafms) — file_log / batches.
+"""Read-only access to ra-platform's Postgres databases.
 
 A dedicated async engine separate from the app database. Used to surface
 file/batch processing status in the Pipelines view. Read-only by convention.
@@ -34,16 +34,75 @@ async def close_ra_postgres() -> None:
 
 
 async def query(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    return await query_database(settings.ra_pg_name, sql, params)
+
+
+async def query_database(
+    database_name: str,
+    sql: str,
+    params: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Run a read-only query against a named database on the RA Postgres host."""
     if not settings.ra_pg_enabled:
         raise UpstreamUnavailableError("ra-platform Postgres integration is disabled.")
     try:
-        async with _get_engine().connect() as conn:
+        engine = pg_engines.async_engine(
+            pg_engines.async_url(
+                settings.ra_pg_host,
+                settings.ra_pg_port,
+                database_name,
+                settings.ra_pg_user,
+                settings.ra_pg_password,
+            )
+        )
+        async with engine.connect() as conn:
             result = await conn.execute(text(sql), params or {})
             return [dict(row) for row in result.mappings().all()]
     except Exception as exc:  # noqa: BLE001
-        log.warning("ra_pg_query_failed", error=str(exc))
+        log.warning("ra_pg_query_failed", database=database_name, error=str(exc))
         raise UpstreamUnavailableError(
-            "ra-platform Postgres query failed.", details={"reason": str(exc)}
+            "ra-platform Postgres query failed.",
+            details={"database": database_name, "reason": str(exc)},
+        ) from exc
+
+
+async def execute_database(
+    database_name: str,
+    sql: str,
+    params: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Run a WRITING statement against a named database on the RA Postgres host.
+
+    The read path above deliberately never commits. This is its counterpart, and
+    the only place the app writes to this host — the Rule Explorer's authored
+    rules (see settings.app_rules_db_name). Rows are returned so a caller can
+    use RETURNING and get the stored row back in one round trip rather than
+    writing and then re-reading it.
+    """
+    if not settings.ra_pg_enabled:
+        raise UpstreamUnavailableError("ra-platform Postgres integration is disabled.")
+    try:
+        engine = pg_engines.async_engine(
+            pg_engines.async_url(
+                settings.ra_pg_host,
+                settings.ra_pg_port,
+                database_name,
+                settings.ra_pg_user,
+                settings.ra_pg_password,
+            )
+        )
+        async with engine.begin() as conn:  # begin() => commits on clean exit
+            result = await conn.execute(text(sql), params or {})
+            if result.returns_rows:
+                return [dict(row) for row in result.mappings().all()]
+            return []
+    except UpstreamUnavailableError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.warning("ra_pg_execute_failed", database=database_name, error=str(exc))
+        raise UpstreamUnavailableError(
+            "ra-platform Postgres write failed.",
+            details={"database": database_name, "reason": str(exc)},
         ) from exc
 
 

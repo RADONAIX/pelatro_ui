@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { RuleCategory } from "./platform-metadata";
+import {
+  createRule,
+  deleteRule,
+  fetchRules,
+  setRuleState,
+  updateRule,
+  type RuleDraft,
+} from "./rules-api";
 
 /** One attribute mapping. For a Single comparison only `left` is used. */
 export type AttrPair = { left: string; right: string };
@@ -177,62 +185,91 @@ export const CATEGORY_PARAMS: Record<
   ],
 };
 
-const KEY = "radonaix_assura_rules_v1";
-
-function read(): CustomRule[] {
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as CustomRule[]) : [];
-  } catch {
-    return [];
-  }
-}
-
+/**
+ * The authored rules for ONE assurance, read from and written to the backend.
+ *
+ * Rules used to live in localStorage, which meant they were invisible to
+ * everyone but the browser that wrote them and gone with a cleared cache. They
+ * are now rows in application_schema.assurance_rule (rafms_rating), fetched per
+ * assurance — `appId` is the filter the server applies, so switching the
+ * Assurance Scope re-fetches rather than re-filtering a shared list.
+ *
+ * Every mutation returns the stored row and folds THAT into state, so what the
+ * table shows is what the database holds — no optimistic guess at the id the
+ * server assigns or the timestamps it stamps.
+ */
 export function useCustomRules(appId: string) {
   const [rules, setRules] = useState<CustomRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setRules(read().filter((r) => r.appId === appId));
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      setRules(await fetchRules(appId));
+      setError(null);
+    } catch (e) {
+      // Leave `rules` alone: a failed refresh should not blank a table the user
+      // is reading. The message drives an inline banner instead.
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
   }, [appId]);
 
-  const persist = useCallback(
-    (next: CustomRule[]) => {
-      const others = read().filter((r) => r.appId !== appId);
-      window.localStorage.setItem(KEY, JSON.stringify([...others, ...next]));
-      setRules(next);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchRules(appId)
+      .then((next) => {
+        if (cancelled) return;
+        setRules(next);
+        setError(null);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        // A different assurance's rules must never be left on screen, so this
+        // one DOES clear — unlike reload above, there is nothing valid to keep.
+        setRules([]);
+        setError(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appId]);
+
+  const addRule = useCallback(
+    async (rule: RuleDraft, prefix: string) => {
+      const created = await createRule(appId, prefix, rule);
+      setRules((prev) => [created, ...prev]);
+      return created;
     },
     [appId],
   );
 
-  const addRule = useCallback(
-    (rule: Omit<CustomRule, "id" | "appId" | "createdAt">, prefix: string) => {
-      const seq = read().filter((r) => r.appId === appId).length + 901;
-      const created: CustomRule = {
-        ...rule,
-        id: `${prefix}${seq}`,
-        appId,
-        createdAt: new Date().toISOString(),
-      };
-      persist([...rules, created]);
-      return created;
-    },
-    [appId, persist, rules],
-  );
+  const editRule = useCallback(async (id: string, rule: RuleDraft) => {
+    const saved = await updateRule(id, rule);
+    setRules((prev) => prev.map((r) => (r.id === id ? saved : r)));
+    return saved;
+  }, []);
 
-  const removeRule = useCallback(
-    (id: string) => persist(rules.filter((r) => r.id !== id)),
-    [persist, rules],
-  );
+  const removeRule = useCallback(async (id: string) => {
+    await deleteRule(id);
+    setRules((prev) => prev.filter((r) => r.id !== id));
+  }, []);
 
   const toggleState = useCallback(
-    (id: string) =>
-      persist(
-        rules.map((r) =>
-          r.id === id ? { ...r, state: r.state === "Active" ? "Draft" : "Active" } : r,
-        ),
-      ),
-    [persist, rules],
+    async (id: string) => {
+      const current = rules.find((r) => r.id === id);
+      if (!current) return;
+      const saved = await setRuleState(id, current.state === "Active" ? "Draft" : "Active");
+      setRules((prev) => prev.map((r) => (r.id === id ? saved : r)));
+    },
+    [rules],
   );
 
-  return { rules, addRule, removeRule, toggleState };
+  return { rules, loading, error, reload, addRule, editRule, removeRule, toggleState };
 }

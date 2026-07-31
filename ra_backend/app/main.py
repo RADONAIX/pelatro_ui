@@ -26,6 +26,7 @@ from app.core.errors import register_exception_handlers
 from app.core.integrations_shutdown import close_all_integrations
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RateLimitMiddleware, RequestContextMiddleware
+from app.modules.reconciliation import scheduler as recon_scheduler
 
 configure_logging(level=settings.log_level, json_logs=settings.log_json)
 log = get_logger("app")
@@ -60,11 +61,21 @@ async def lifespan(_: FastAPI):
     cleanup_task = (
         asyncio.create_task(_exports_cleanup_loop()) if settings.exports_enabled else None
     )
+    # Recurring reconciliation runs. In-process for the same reason the exports
+    # cleanup is: this is a modular monolith, and the loop claims work from a
+    # table rather than holding it in memory, so moving it to a worker later is
+    # a deployment change, not a rewrite.
+    recon_task = (
+        asyncio.create_task(recon_scheduler.scheduler_loop())
+        if settings.recon_scheduler_enabled and settings.ra_pg_enabled
+        else None
+    )
     yield
-    if cleanup_task is not None:
-        cleanup_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await cleanup_task
+    for task in (cleanup_task, recon_task):
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
     await close_all_integrations()
     await engine.dispose()
     log.info("shutdown")

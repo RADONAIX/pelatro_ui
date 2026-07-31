@@ -168,9 +168,13 @@ class Settings(BaseSettings):
 
     # --- ra-platform integration: Postgres (read-only file_log/batches) ----
     ra_pg_enabled: bool = True
-    ra_pg_host: str = "10.200.37.142"
+    ra_pg_host: str = "10.200.36.69"
     ra_pg_port: int = 5432
-    ra_pg_name: str = "rafms_app"
+    # The AIR and SDP pipeline schemas both live in the consolidated `rafms`
+    # database. Deployments can still override this with RA_PG_NAME.
+    ra_pg_name: str = "rafms"
+    # Rating metadata is stored on the same server under a separate database.
+    ra_rating_pg_name: str = "rafms_rating"
     ra_pg_user: str = "postgres"
     ra_pg_password: str = "postgres"
     # Pipeline batch-log / file-log tables now live in per-DAG schemas
@@ -207,6 +211,34 @@ class Settings(BaseSettings):
     # `bi_reports` schema holds the pre-computed report materialized views.
     ra_bi_pg_name: str = "rafms"
     ra_bi_pg_schema: str = "bi_reports"
+
+    # --- Authored assurance rules (READ/WRITE) ------------------------------
+    # Same server/creds as ra_pg, a different database again. This is the only
+    # ra_pg-host connection the app writes to: the Rule Explorer's authored
+    # rules. Kept out of the app database deliberately — a rule is assurance
+    # content, not platform state, so it outlives an app-DB reset and is
+    # readable by anything else pointed at rafms_rating.
+    app_rules_db_name: str = "rafms_rating"
+    app_rules_schema: str = "application_schema"
+
+    # --- Reconciliation rule engine ----------------------------------------
+    # Generated reconciliation tables live in this schema, in the SAME database
+    # as their source tables — the load is one server-side INSERT ... SELECT, so
+    # output and sources cannot be in different databases.
+    recon_output_schema: str = "assurance"
+    # Ceiling on one reconciliation load. A rule joining two very large tables
+    # is stopped rather than allowed to hold a connection open indefinitely;
+    # 0 disables the cap.
+    recon_statement_timeout_seconds: int = 1800  # 30 min
+    # Executions whose rows are kept in the output table. Older executions are
+    # pruned after a successful run, so the table does not grow without bound.
+    recon_keep_executions: int = 3
+    # Scheduler poll interval. Each tick claims the rules whose next_run_at has
+    # passed; it does not need to be as fine as the tightest frequency.
+    recon_scheduler_interval_seconds: int = 60
+    recon_scheduler_enabled: bool = True
+    # Rules run per tick, so one busy tick cannot saturate the pool.
+    recon_scheduler_batch: int = 5
 
     # --- ra-platform integration: Airflow REST (pipeline control) ----------
     airflow_enabled: bool = False

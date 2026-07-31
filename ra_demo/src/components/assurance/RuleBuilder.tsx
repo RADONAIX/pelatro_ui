@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import type { AppMetadata, RuleCategory } from "@/lib/assurance/platform-metadata";
 import { RULE_CATEGORIES, ruleCategories } from "@/lib/assurance/platform-metadata";
@@ -12,7 +12,11 @@ import {
   type CustomRule,
   type RuleComparison,
 } from "@/lib/assurance/rule-authoring";
-import { RULE_TABLES, tableColumns } from "@/lib/assurance/tables";
+import {
+  fetchAssuranceTables,
+  fetchTableColumns,
+  type AssuranceTable,
+} from "@/lib/assurance/metadata-api";
 // Case priority vocabulary, aliased — this file already has its own SEVERITIES
 // for the rule's own severity, which is a narrower set than a case's.
 import { SEVERITIES as CASE_SEVERITIES } from "@/lib/cases";
@@ -32,7 +36,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -44,11 +50,26 @@ const FREQUENCIES: CustomRule["frequency"][] = ["Real-time", "Hourly", "Daily", 
 
 export function RuleBuilder({
   app,
-  onCreate,
+  onSubmit,
+  rule,
+  trigger,
 }: {
   app: AppMetadata;
-  onCreate: (rule: Draft) => void;
+  /**
+   * Persist the draft. Async and awaited: the dialog stays open (and the button
+   * stays busy) until the write lands, so a rejected save doesn't close over
+   * the author's work and lose it.
+   */
+  onSubmit: (rule: Draft) => Promise<unknown>;
+  /**
+   * The rule being edited. Absent = authoring a new one. Present = every field
+   * is seeded from it, and the dialog titles/labels switch to editing.
+   */
+  rule?: CustomRule;
+  /** Replaces the default "New rule" button — the Controls table passes Edit. */
+  trigger?: ReactNode;
 }) {
+  const editing = !!rule;
   const scoped = useMemo(
     () =>
       RULE_CATEGORIES.filter(
@@ -70,6 +91,8 @@ export function RuleBuilder({
   // toggling Single/Multiple — doesn't discard a half-built comparison.
   const [comparison, setComparison] = useState<RuleComparison>(emptyComparison);
   const [routing, setRouting] = useState<CaseRouting>(() => emptyCaseRouting("high"));
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const fields = CATEGORY_PARAMS[category];
   const isComparison = COMPARISON_CATEGORIES.has(category);
@@ -88,54 +111,80 @@ export function RuleBuilder({
 
   const valid = name.trim().length > 1 && comparisonValid;
 
-  function reset() {
-    setName("");
-    setDescription("");
-    setCategory(scoped[0] ?? RULE_CATEGORIES[0]);
-    setEntity(app.entities[0]);
-    setSeverity("high");
-    setFrequency("Daily");
-    setState("Draft");
-    setParams({});
-    setComparison(emptyComparison());
-    setRouting(emptyCaseRouting("high"));
-  }
+  // Seeds every field from the rule under edit, or back to defaults when
+  // authoring. Runs on close as well as on open, so a cancelled edit leaves no
+  // residue in the next dialog.
+  const reset = useCallback(() => {
+    setName(rule?.name ?? "");
+    setDescription(rule?.description ?? "");
+    setCategory(rule?.category ?? scoped[0] ?? RULE_CATEGORIES[0]);
+    setEntity(rule?.entity ?? app.entities[0]);
+    setSeverity(rule?.severity ?? "high");
+    setFrequency(rule?.frequency ?? "Daily");
+    setState(rule?.state ?? "Draft");
+    setParams(rule?.params ?? {});
+    // A rule saved before the comparison shape existed, or one of a
+    // non-comparison category, has no block to restore — fall back to an empty
+    // one rather than leaving the previous rule's tables on screen.
+    setComparison(rule?.comparison ?? emptyComparison());
+    setRouting(rule?.caseRouting ?? emptyCaseRouting(rule?.severity ?? "high"));
+    setSaveError(null);
+  }, [rule, scoped, app.entities]);
 
-  function submit() {
-    if (!valid) return;
-    onCreate({
-      name: name.trim(),
-      description: description.trim(),
-      category,
-      entity,
-      severity,
-      frequency,
-      state,
-      params,
-      // Drop the half-filled other mode so a Single rule never carries a
-      // table2/keys that nothing reads.
-      ...(isComparison
-        ? {
-            comparison: isMultiple
-              ? {
-                  ...comparison,
-                  metrics: comparison.metrics.filter((m) => m.left && m.right),
-                  keys: comparison.keys.filter((k) => k.left && k.right),
-                }
-              : {
-                  ...comparison,
-                  table2: "",
-                  metrics: comparison.metrics.filter((m) => m.left).map((m) => ({ ...m, right: "" })),
-                  keys: [],
-                },
-          }
-        : {}),
-      // Omitted entirely when not raising, so a rule that routes nowhere carries
-      // no policy at all rather than a disabled one.
-      ...(routing.raiseCase ? { caseRouting: { ...routing, owner: routing.owner.trim() } } : {}),
-    });
-    reset();
-    setOpen(false);
+  // Re-seed when the dialog is handed a different rule (each table row renders
+  // its own builder, but a list refresh replaces the object identity).
+  useEffect(() => {
+    if (!open) reset();
+  }, [open, reset]);
+
+  async function submit() {
+    if (!valid || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        category,
+        entity,
+        severity,
+        frequency,
+        state,
+        params,
+        // Drop the half-filled other mode so a Single rule never carries a
+        // table2/keys that nothing reads.
+        ...(isComparison
+          ? {
+              comparison: isMultiple
+                ? {
+                    ...comparison,
+                    metrics: comparison.metrics.filter((m) => m.left && m.right),
+                    keys: comparison.keys.filter((k) => k.left && k.right),
+                  }
+                : {
+                    ...comparison,
+                    table2: "",
+                    metrics: comparison.metrics
+                      .filter((m) => m.left)
+                      .map((m) => ({ ...m, right: "" })),
+                    keys: [],
+                  },
+            }
+          : {}),
+        // Omitted entirely when not raising, so a rule that routes nowhere
+        // carries no policy at all rather than a disabled one.
+        ...(routing.raiseCase
+          ? { caseRouting: { ...routing, owner: routing.owner.trim() } }
+          : {}),
+      });
+      setOpen(false);
+    } catch (e) {
+      // Stay open with the author's work intact — the write is what failed, not
+      // the input, so re-typing it would be the wrong remedy.
+      setSaveError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -147,14 +196,18 @@ export function RuleBuilder({
       }}
     >
       <DialogTrigger asChild>
-        <Button size="sm" className="gap-1.5">
-          <Plus className="size-4" />
-          New rule
-        </Button>
+        {trigger ?? (
+          <Button size="sm" className="gap-1.5">
+            <Plus className="size-4" />
+            New rule
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Create control rule</DialogTitle>
+          <DialogTitle>
+            {editing ? `Edit control rule ${rule.id}` : "Create control rule"}
+          </DialogTitle>
           <DialogDescription>
             Rules are metadata. Pick a primitive category and the universal rule engine compiles
             the parameters into an executable control for {app.name}.
@@ -268,7 +321,7 @@ export function RuleBuilder({
           </div>
 
           {isComparison && (
-            <ComparisonEditor value={comparison} onChange={setComparison} />
+            <ComparisonEditor assurance={app.id} value={comparison} onChange={setComparison} />
           )}
 
           <div className="rounded-md border border-border p-3">
@@ -324,12 +377,18 @@ export function RuleBuilder({
           {routing.raiseCase && <CaseRoutingEditor value={routing} onChange={setRouting} />}
         </div>
 
+        {saveError && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            Could not save this rule: {saveError}
+          </p>
+        )}
+
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
+          <Button variant="outline" size="sm" disabled={saving} onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button size="sm" disabled={!valid} onClick={submit}>
-            Create rule
+          <Button size="sm" disabled={!valid || saving} onClick={submit}>
+            {saving ? "Saving…" : editing ? "Save changes" : "Create rule"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -348,17 +407,86 @@ export function RuleBuilder({
 // ---------------------------------------------------------------------------
 
 function ComparisonEditor({
+  assurance,
   value,
   onChange,
 }: {
+  assurance: string;
   value: RuleComparison;
   onChange: (next: RuleComparison) => void;
 }) {
   const isMultiple = value.mode === "Multiple";
-  const leftCols = tableColumns(value.table1);
-  const rightCols = tableColumns(value.table2);
+  const [tables, setTables] = useState<AssuranceTable[]>([]);
+  const [leftCols, setLeftCols] = useState<string[]>([]);
+  const [rightCols, setRightCols] = useState<string[]>([]);
+  const [tablesLoading, setTablesLoading] = useState(true);
+  const [leftLoading, setLeftLoading] = useState(false);
+  const [rightLoading, setRightLoading] = useState(false);
+  const [metadataError, setMetadataError] = useState("");
 
   const set = (patch: Partial<RuleComparison>) => onChange({ ...value, ...patch });
+
+  useEffect(() => {
+    let active = true;
+    setTables([]);
+    setTablesLoading(true);
+    setMetadataError("");
+    fetchAssuranceTables(assurance)
+      .then((next) => {
+        if (active) setTables(next);
+      })
+      .catch(() => {
+        if (active) setMetadataError("Could not load tables from RA_Backend.");
+      })
+      .finally(() => {
+        if (active) setTablesLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [assurance]);
+
+  useEffect(() => {
+    let active = true;
+    setLeftCols([]);
+    setLeftLoading(!!value.table1);
+    if (value.table1) {
+      fetchTableColumns(assurance, value.table1)
+        .then((next) => {
+          if (active) setLeftCols(next);
+        })
+        .catch(() => {
+          if (active) setMetadataError("Could not load the columns for Table 1.");
+        })
+        .finally(() => {
+          if (active) setLeftLoading(false);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [assurance, value.table1]);
+
+  useEffect(() => {
+    let active = true;
+    setRightCols([]);
+    setRightLoading(!!value.table2);
+    if (value.table2) {
+      fetchTableColumns(assurance, value.table2)
+        .then((next) => {
+          if (active) setRightCols(next);
+        })
+        .catch(() => {
+          if (active) setMetadataError("Could not load the columns for Table 2.");
+        })
+        .finally(() => {
+          if (active) setRightLoading(false);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [assurance, value.table2]);
 
   const setPair = (field: "metrics" | "keys", i: number, patch: Partial<AttrPair>) =>
     set({ [field]: value[field].map((p, j) => (j === i ? { ...p, ...patch } : p)) } as Partial<RuleComparison>);
@@ -386,6 +514,7 @@ function ComparisonEditor({
             {i === 0 && <Label className="text-xs">{isMultiple ? "Attribute 1" : "Attributes"}</Label>}
             <ColumnSelect
               columns={leftCols}
+              loading={leftLoading}
               value={pair.left}
               onChange={(v) => setPair(field, i, { left: v })}
             />
@@ -396,6 +525,7 @@ function ComparisonEditor({
               {i === 0 && <Label className="text-xs">Attribute 2</Label>}
               <ColumnSelect
                 columns={rightCols}
+                loading={rightLoading}
                 value={pair.right}
                 onChange={(v) => setPair(field, i, { right: v })}
               />
@@ -449,16 +579,40 @@ function ComparisonEditor({
 
         <div className="space-y-1.5">
           <Label>Table 1</Label>
-          <TableSelect value={value.table1} onChange={(v) => set({ table1: v })} />
+          <TableSelect
+            tables={tables}
+            loading={tablesLoading}
+            value={value.table1}
+            onChange={(v) =>
+              set({
+                table1: v,
+                metrics: value.metrics.map((pair) => ({ ...pair, left: "" })),
+                keys: value.keys.map((pair) => ({ ...pair, left: "" })),
+              })
+            }
+          />
         </div>
 
         {isMultiple && (
           <div className="space-y-1.5">
             <Label>Table 2</Label>
-            <TableSelect value={value.table2} onChange={(v) => set({ table2: v })} />
+            <TableSelect
+              tables={tables}
+              loading={tablesLoading}
+              value={value.table2}
+              onChange={(v) =>
+                set({
+                  table2: v,
+                  metrics: value.metrics.map((pair) => ({ ...pair, right: "" })),
+                  keys: value.keys.map((pair) => ({ ...pair, right: "" })),
+                })
+              }
+            />
           </div>
         )}
       </div>
+
+      {metadataError && <p className="text-[11px] text-destructive">{metadataError}</p>}
 
       {!isMultiple && (
         <p className="text-[11px] text-muted-foreground">
@@ -478,17 +632,39 @@ function ComparisonEditor({
   );
 }
 
-function TableSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function TableSelect({
+  tables,
+  loading,
+  value,
+  onChange,
+}: {
+  tables: AssuranceTable[];
+  loading: boolean;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const grouped = tables.reduce<Record<string, AssuranceTable[]>>((groups, table) => {
+    (groups[table.database_name] ??= []).push(table);
+    return groups;
+  }, {});
+
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={value} onValueChange={onChange} disabled={loading || tables.length === 0}>
       <SelectTrigger>
-        <SelectValue placeholder="Select a table…" />
+        <SelectValue placeholder={loading ? "Loading tables…" : "Select a table…"} />
       </SelectTrigger>
       <SelectContent>
-        {RULE_TABLES.map((t) => (
-          <SelectItem key={t.id} value={t.id}>
-            {t.label}
-          </SelectItem>
+        {Object.entries(grouped).map(([database, databaseTables]) => (
+          <SelectGroup key={database}>
+            <SelectLabel className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              {database}
+            </SelectLabel>
+            {databaseTables.map((table) => (
+              <SelectItem key={table.id} value={table.id}>
+                {table.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         ))}
       </SelectContent>
     </Select>
@@ -497,17 +673,27 @@ function TableSelect({ value, onChange }: { value: string; onChange: (v: string)
 
 function ColumnSelect({
   columns,
+  loading,
   value,
   onChange,
 }: {
   columns: string[];
+  loading: boolean;
   value: string;
   onChange: (v: string) => void;
 }) {
   return (
-    <Select value={value} onValueChange={onChange} disabled={columns.length === 0}>
+    <Select value={value} onValueChange={onChange} disabled={loading || columns.length === 0}>
       <SelectTrigger>
-        <SelectValue placeholder={columns.length ? "Select an attribute…" : "Select a table first"} />
+        <SelectValue
+          placeholder={
+            loading
+              ? "Loading attributes…"
+              : columns.length
+                ? "Select an attribute…"
+                : "Select a table first"
+          }
+        />
       </SelectTrigger>
       <SelectContent>
         {columns.map((c) => (
