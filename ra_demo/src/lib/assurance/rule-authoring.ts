@@ -1,6 +1,44 @@
 import { useCallback, useEffect, useState } from "react";
 import type { RuleCategory } from "./platform-metadata";
 
+/** One attribute mapping. For a Single comparison only `left` is used. */
+export type AttrPair = { left: string; right: string };
+
+export type ComparisonMode = "Single" | "Multiple";
+
+/**
+ * The two-table shape, for categories that inherently compare datasets rather
+ * than inspect one.
+ *
+ * A flat Record<string,string> cannot express this: reconciling AIR Raw against
+ * AIR Processed needs a join on possibly several keys AND several measured
+ * values (tran_amt and acc_balance), and each is a pair of columns from two
+ * different tables. That is what produces the four outcomes the AIR
+ * Reconciliation Report reports — RAW_ONLY / PROC_ONLY come from the key join
+ * failing, AMOUNT_MISMATCH from a metric pair differing on a row that joined.
+ *
+ * Single keeps the same container so toggling modes mid-edit doesn't discard
+ * work; table2 and keys are simply ignored while mode is "Single".
+ */
+export type RuleComparison = {
+  mode: ComparisonMode;
+  table1: string;
+  table2: string;
+  /** Measured values compared between the tables. */
+  metrics: AttrPair[];
+  /** Attributes used to join records across the tables. Multiple only. */
+  keys: AttrPair[];
+};
+
+/**
+ * Categories authored with the two-table comparison shape instead of flat
+ * params. Add a category here and the builder switches it over — nothing else
+ * needs to change.
+ */
+export const COMPARISON_CATEGORIES: ReadonlySet<RuleCategory> = new Set<RuleCategory>([
+  "Reconciliation",
+]);
+
 export type CustomRule = {
   id: string;
   appId: string;
@@ -12,8 +50,21 @@ export type CustomRule = {
   frequency: "Real-time" | "Hourly" | "Daily" | "Cycle";
   state: "Draft" | "Active";
   params: Record<string, string>;
+  /**
+   * Present only for COMPARISON_CATEGORIES. Optional so rules already in
+   * localStorage from before this shape existed still parse.
+   */
+  comparison?: RuleComparison;
   createdAt: string;
 };
+
+export const emptyComparison = (): RuleComparison => ({
+  mode: "Multiple",
+  table1: "",
+  table2: "",
+  metrics: [{ left: "", right: "" }],
+  keys: [{ left: "", right: "" }],
+});
 
 /**
  * Parameter contract per primitive rule category. The rule engine is universal;
@@ -28,12 +79,10 @@ export const CATEGORY_PARAMS: Record<
     { key: "targetFeed", label: "Target feed", placeholder: "Mediation output" },
     { key: "tolerance", label: "Tolerance %", placeholder: "0.5" },
   ],
-  Reconciliation: [
-    { key: "sourceFeed", label: "Left dataset", placeholder: "Mediation output" },
-    { key: "targetFeed", label: "Right dataset", placeholder: "Billing input" },
-    { key: "matchKey", label: "Match key", placeholder: "cdr_id" },
-    { key: "tolerance", label: "Tolerance %", placeholder: "0.1" },
-  ],
+  // Datasets, join keys and compared values now come from the comparison block
+  // (see COMPARISON_CATEGORIES) — free-text feed names and a single match key
+  // could not express a composite join or more than one measured value.
+  Reconciliation: [{ key: "tolerance", label: "Tolerance %", placeholder: "0.1" }],
   Comparison: [
     { key: "leftField", label: "Left field", placeholder: "rated_amount" },
     { key: "operator", label: "Operator", placeholder: "!=" },

@@ -1,8 +1,16 @@
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import type { AppMetadata, RuleCategory } from "@/lib/assurance/platform-metadata";
 import { RULE_CATEGORIES } from "@/lib/assurance/platform-metadata";
-import { CATEGORY_PARAMS, type CustomRule } from "@/lib/assurance/rule-authoring";
+import {
+  CATEGORY_PARAMS,
+  COMPARISON_CATEGORIES,
+  emptyComparison,
+  type AttrPair,
+  type CustomRule,
+  type RuleComparison,
+} from "@/lib/assurance/rule-authoring";
+import { RULE_TABLES, tableColumns } from "@/lib/assurance/tables";
 import {
   Dialog,
   DialogContent,
@@ -53,9 +61,26 @@ export function RuleBuilder({
   const [frequency, setFrequency] = useState<CustomRule["frequency"]>("Daily");
   const [state, setState] = useState<CustomRule["state"]>("Draft");
   const [params, setParams] = useState<Record<string, string>>({});
+  // Kept mounted across category changes so switching away and back — or
+  // toggling Single/Multiple — doesn't discard a half-built comparison.
+  const [comparison, setComparison] = useState<RuleComparison>(emptyComparison);
 
   const fields = CATEGORY_PARAMS[category];
-  const valid = name.trim().length > 1;
+  const isComparison = COMPARISON_CATEGORIES.has(category);
+  const isMultiple = comparison.mode === "Multiple";
+
+  // A comparison rule needs enough to actually run: both tables, at least one
+  // complete metric pair, and — when joining two tables — at least one complete
+  // key pair. Without a key there is nothing to join on and the four outcomes
+  // (matched / mismatch / left-only / right-only) can't be produced.
+  const comparisonValid =
+    !isComparison ||
+    (!!comparison.table1 &&
+      (!isMultiple || !!comparison.table2) &&
+      comparison.metrics.some((m) => m.left && (!isMultiple || m.right)) &&
+      (!isMultiple || comparison.keys.some((k) => k.left && k.right)));
+
+  const valid = name.trim().length > 1 && comparisonValid;
 
   function reset() {
     setName("");
@@ -66,11 +91,39 @@ export function RuleBuilder({
     setFrequency("Daily");
     setState("Draft");
     setParams({});
+    setComparison(emptyComparison());
   }
 
   function submit() {
     if (!valid) return;
-    onCreate({ name: name.trim(), description: description.trim(), category, entity, severity, frequency, state, params });
+    onCreate({
+      name: name.trim(),
+      description: description.trim(),
+      category,
+      entity,
+      severity,
+      frequency,
+      state,
+      params,
+      // Drop the half-filled other mode so a Single rule never carries a
+      // table2/keys that nothing reads.
+      ...(isComparison
+        ? {
+            comparison: isMultiple
+              ? {
+                  ...comparison,
+                  metrics: comparison.metrics.filter((m) => m.left && m.right),
+                  keys: comparison.keys.filter((k) => k.left && k.right),
+                }
+              : {
+                  ...comparison,
+                  table2: "",
+                  metrics: comparison.metrics.filter((m) => m.left).map((m) => ({ ...m, right: "" })),
+                  keys: [],
+                },
+          }
+        : {}),
+    });
     reset();
     setOpen(false);
   }
@@ -195,6 +248,10 @@ export function RuleBuilder({
             </div>
           </div>
 
+          {isComparison && (
+            <ComparisonEditor value={comparison} onChange={setComparison} />
+          )}
+
           <div className="rounded-md border border-border p-3">
             <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
               {category} parameters
@@ -238,5 +295,188 @@ export function RuleBuilder({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+// ---------------------------------------------------------------------------
+// The two-table comparison editor, for categories where the rule compares
+// datasets rather than inspecting one (see COMPARISON_CATEGORIES).
+//
+// Single  — one table checked against itself: attributes only, no keys.
+// Multiple — two tables: paired metrics AND paired join keys, both repeatable.
+//
+// Attributes are chosen from the selected table's real columns, so a rule can
+// never reference a column that doesn't exist.
+// ---------------------------------------------------------------------------
+
+function ComparisonEditor({
+  value,
+  onChange,
+}: {
+  value: RuleComparison;
+  onChange: (next: RuleComparison) => void;
+}) {
+  const isMultiple = value.mode === "Multiple";
+  const leftCols = tableColumns(value.table1);
+  const rightCols = tableColumns(value.table2);
+
+  const set = (patch: Partial<RuleComparison>) => onChange({ ...value, ...patch });
+
+  const setPair = (field: "metrics" | "keys", i: number, patch: Partial<AttrPair>) =>
+    set({ [field]: value[field].map((p, j) => (j === i ? { ...p, ...patch } : p)) } as Partial<RuleComparison>);
+
+  const addPair = (field: "metrics" | "keys") =>
+    set({ [field]: [...value[field], { left: "", right: "" }] } as Partial<RuleComparison>);
+
+  const removePair = (field: "metrics" | "keys", i: number) =>
+    set({
+      [field]: value[field].length > 1 ? value[field].filter((_, j) => j !== i) : value[field],
+    } as Partial<RuleComparison>);
+
+  const pairRows = (field: "metrics" | "keys", hint: string) => (
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+          {field === "metrics" ? "Comparison metric" : "Comparison keys"}
+        </p>
+        <p className="text-[11px] text-muted-foreground">{hint}</p>
+      </div>
+
+      {value[field].map((pair, i) => (
+        <div key={`${field}-${i}`} className="flex items-end gap-2">
+          <div className="min-w-0 flex-1 space-y-1.5">
+            {i === 0 && <Label className="text-xs">{isMultiple ? "Attribute 1" : "Attributes"}</Label>}
+            <ColumnSelect
+              columns={leftCols}
+              value={pair.left}
+              onChange={(v) => setPair(field, i, { left: v })}
+            />
+          </div>
+
+          {isMultiple && (
+            <div className="min-w-0 flex-1 space-y-1.5">
+              {i === 0 && <Label className="text-xs">Attribute 2</Label>}
+              <ColumnSelect
+                columns={rightCols}
+                value={pair.right}
+                onChange={(v) => setPair(field, i, { right: v })}
+              />
+            </div>
+          )}
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Remove pair"
+            disabled={value[field].length === 1}
+            onClick={() => removePair(field, i)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      ))}
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full border-dashed"
+        onClick={() => addPair(field)}
+      >
+        <Plus className="mr-1.5 size-3.5" />
+        Add pair
+      </Button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 rounded-md border border-border p-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1.5">
+          <Label>Type</Label>
+          <Select
+            value={value.mode}
+            onValueChange={(v) => set({ mode: v as RuleComparison["mode"] })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Single">Single — one table</SelectItem>
+              <SelectItem value="Multiple">Multiple — two tables</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Table 1</Label>
+          <TableSelect value={value.table1} onChange={(v) => set({ table1: v })} />
+        </div>
+
+        {isMultiple && (
+          <div className="space-y-1.5">
+            <Label>Table 2</Label>
+            <TableSelect value={value.table2} onChange={(v) => set({ table2: v })} />
+          </div>
+        )}
+      </div>
+
+      {!isMultiple && (
+        <p className="text-[11px] text-muted-foreground">
+          Table 2 and comparison keys aren&apos;t saved for Single rules.
+        </p>
+      )}
+
+      {pairRows(
+        "metrics",
+        isMultiple
+          ? "The measured values compared between the two tables."
+          : "The attributes checked within the table.",
+      )}
+
+      {isMultiple && pairRows("keys", "The attributes used to join records across the two tables.")}
+    </div>
+  );
+}
+
+function TableSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger>
+        <SelectValue placeholder="Select a table…" />
+      </SelectTrigger>
+      <SelectContent>
+        {RULE_TABLES.map((t) => (
+          <SelectItem key={t.id} value={t.id}>
+            {t.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ColumnSelect({
+  columns,
+  value,
+  onChange,
+}: {
+  columns: string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <Select value={value} onValueChange={onChange} disabled={columns.length === 0}>
+      <SelectTrigger>
+        <SelectValue placeholder={columns.length ? "Select an attribute…" : "Select a table first"} />
+      </SelectTrigger>
+      <SelectContent>
+        {columns.map((c) => (
+          <SelectItem key={c} value={c}>
+            {c}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
