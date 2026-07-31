@@ -37,7 +37,7 @@ async def recon_summary(*, hours: int = 24) -> schemas.ReconSummary:
                   + sumIf(abs(ifNull(raw_transaction_amount, 0)
                               - ifNull(proc_transaction_amount, 0)),
                           reconciliation_status = 'AMOUNT_MISMATCH') AS leakage
-            FROM {ident}.air_reconciliation FINAL
+            FROM {ident}.air_reconciliation{settings.ch_final}
             WHERE coalesce(raw_origin_timestamp, proc_origin_timestamp)
                   >= now() - INTERVAL {int(hours)} HOUR
             """
@@ -84,7 +84,7 @@ async def recon_records(
                raw_transaction_amount, proc_transaction_amount,
                raw_account_balance, proc_account_balance, reconciliation_status,
                coalesce(raw_origin_timestamp, proc_origin_timestamp) AS created_time
-        FROM {ident}.air_reconciliation FINAL
+        FROM {ident}.air_reconciliation{settings.ch_final}
         WHERE {where}
         ORDER BY created_time DESC
         LIMIT {int(limit)} OFFSET {int(offset)}

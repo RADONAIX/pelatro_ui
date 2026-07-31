@@ -233,7 +233,7 @@ async def get_kpis(db: AsyncSession) -> schemas.PipelineKpis:
                 count() AS total,
                 countIf(reconciliation_status = 'MATCHED') AS matched,
                 countIf(reconciliation_status != 'MATCHED') AS mismatched
-            FROM {ident}.air_reconciliation FINAL
+            FROM {ident}.air_reconciliation{settings.ch_final}
             WHERE coalesce(raw_origin_timestamp, proc_origin_timestamp)
                   >= now() - INTERVAL 24 HOUR
             """
@@ -285,7 +285,7 @@ async def get_stages(db: AsyncSession) -> list[schemas.PipelineStage]:
             SELECT
                 count() AS total,
                 countIf(reconciliation_status = 'MATCHED') AS matched
-            FROM {ident}.air_reconciliation FINAL
+            FROM {ident}.air_reconciliation{settings.ch_final}
             WHERE coalesce(raw_origin_timestamp, proc_origin_timestamp)
                   >= now() - INTERVAL 24 HOUR
             """

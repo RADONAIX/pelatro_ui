@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     log_json: bool = True
 
     # CORS — comma-separated origins, or "*" for all (dev only).
-    cors_origins: str = "http://localhost:3000,http://localhost:5173,http://localhost:8080"
+    cors_origins: str = (
+        "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://localhost:8081"
+    )
 
     # --- Auth / JWT --------------------------------------------------------
     jwt_secret: str = Field(default="change-me-in-production", min_length=8)
@@ -135,6 +137,14 @@ class Settings(BaseSettings):
 
     # --- ra-platform integration: ClickHouse (read-only recon data) --------
     clickhouse_enabled: bool = True
+    # Append FINAL to reconciliation reads. Correct — and required — when the
+    # recon tables are a ReplacingMergeTree, where FINAL is what collapses
+    # superseded row versions at read time. Plain MergeTree REJECTS the keyword
+    # outright ("Storage MergeTree doesn't support FINAL", code 181), which fails
+    # the whole query rather than degrading, so a deployment whose tables are
+    # plain MergeTree must set this false. Turning it off where the table IS
+    # replacing would double-count superseded rows, so leave it on by default.
+    clickhouse_use_final: bool = True
     clickhouse_host: str = "localhost"
     clickhouse_port: int = 8123
     clickhouse_user: str = "default"
@@ -318,6 +328,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def ch_final(self) -> str:
+        """`" FINAL"` or `""`, ready to interpolate straight after a table name."""
+        return " FINAL" if self.clickhouse_use_final else ""
 
     @property
     def clickhouse_query_settings(self) -> dict[str, int]:
