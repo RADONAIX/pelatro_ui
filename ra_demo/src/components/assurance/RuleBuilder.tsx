@@ -13,13 +13,9 @@ import {
   type RuleComparison,
 } from "@/lib/assurance/rule-authoring";
 import { RULE_TABLES, tableColumns } from "@/lib/assurance/tables";
-// Case vocabularies, aliased — this file already has its own SEVERITIES for the
-// rule's own severity, which is a narrower set than a case's.
-import {
-  FINDING_TYPES,
-  SEVERITIES as CASE_SEVERITIES,
-  STREAMS,
-} from "@/lib/casesDemo";
+// Case priority vocabulary, aliased — this file already has its own SEVERITIES
+// for the rule's own severity, which is a narrower set than a case's.
+import { SEVERITIES as CASE_SEVERITIES } from "@/lib/cases";
 import {
   Dialog,
   DialogContent,
@@ -529,8 +525,8 @@ function ColumnSelect({
 //
 // Nothing evaluates a CustomRule, so this is policy, not behaviour: the Controls
 // table reads it for its manual "Raise case" action, and a real evaluator would
-// read exactly the same block. Every vocabulary here comes from casesDemo so a
-// rule-raised case is indistinguishable from a hand-raised one.
+// read exactly the same block. Priority uses the case service's own severity
+// list, so a rule-raised case is indistinguishable from a hand-raised one.
 // ---------------------------------------------------------------------------
 
 function CaseRoutingEditor({
@@ -577,43 +573,11 @@ function CaseRoutingEditor({
             placeholder="Leave blank to raise unassigned"
           />
         </div>
-
-        <div className="space-y-1.5">
-          <Label>Finding type</Label>
-          <Select value={value.findingType} onValueChange={(v) => set({ findingType: v })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FINDING_TYPES.map((f) => (
-                <SelectItem key={f.key} value={f.key}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label>Stream</Label>
-          <Select value={value.stream} onValueChange={(v) => set({ stream: v })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STREAMS.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Cases open in Case Management. No evaluator runs this rule yet — raise one
-        from the Controls table to see it end to end.
+        Assurance, module and issue type come from this rule and its app. Nothing evaluates the rule
+        yet — raise a case from the Controls table to see it end to end.
       </p>
     </div>
   );

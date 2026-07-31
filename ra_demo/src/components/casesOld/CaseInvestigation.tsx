@@ -4,7 +4,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui-kit/StatusBadge";
-import { AssistantPanel } from "@/components/cases/AssistantPanel";
+// The casesOld copy, not cases/. This file is the superseded investigation
+// modal and works on the localStorage AssuranceCase from lib/casesDemo; the
+// cases/ AssistantPanel now takes the backend-backed case from lib/cases, so
+// pointing at it makes the whole file fail to typecheck.
+import { AssistantPanel } from "@/components/casesOld/AssistantPanel";
 import {
   ACTIONS, SEVERITIES, STATUSES, CURRENT_ANALYST,
   findingLabel, fmtDate, fmtMoney, newId, relative,

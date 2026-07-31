@@ -44,12 +44,14 @@ export const COMPARISON_CATEGORIES: ReadonlySet<RuleCategory> = new Set<RuleCate
  *
  * Policy only — nothing evaluates a CustomRule, so no case is raised
  * automatically. The Controls table exposes a manual "Raise case" action that
- * reads this, and createCaseFromRule() in src/lib/casesDemo.ts is the seam a
- * real evaluator would call with exactly the same input.
+ * POSTs to the case service; the real evaluator posts to /api/cases/ingest with
+ * the same rule identity plus the breach figures.
  *
- * Vocabularies are deliberately the ones cases already use (SEVERITIES,
- * FINDING_TYPES, STREAMS in casesDemo.ts) rather than parallel enums — that is
- * what makes a rule-raised case indistinguishable from a hand-raised one.
+ * Deliberately small: everything else the case service wants is already on the
+ * rule or its app — assurance from the app, module from the rule's entity,
+ * issue type from its category — so asking the author again would be a second
+ * place for the same fact to be wrong. Only priority and owner are choices the
+ * rule cannot answer for itself.
  */
 export type CaseRouting = {
   raiseCase: boolean;
@@ -57,18 +59,12 @@ export type CaseRouting = {
   priority: "low" | "medium" | "high" | "critical";
   /** Free text, "" = unassigned. Matches every other assignment control here. */
   owner: string;
-  /** A FINDING_TYPES key. */
-  findingType: string;
-  /** A STREAMS value. */
-  stream: string;
 };
 
 export const emptyCaseRouting = (severity: CustomRule["severity"]): CaseRouting => ({
   raiseCase: false,
   priority: severity,
   owner: "",
-  findingType: "control_rule",
-  stream: "AIR",
 });
 
 export type CustomRule = {

@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { RuleBuilder } from "../RuleBuilder";
 import { useCustomRules, type CustomRule } from "@/lib/assurance/rule-authoring";
-import { createCaseFromRule, loadCases, saveCases } from "@/lib/casesDemo";
+import { tableLabel } from "@/lib/assurance/tables";
+import { createCase } from "@/lib/cases";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -14,18 +15,69 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
   const all = useMemo(() => buildControls(app, 24), [app]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<RuleCategory | "All">("All");
+  const [raising, setRaising] = useState<string | null>(null);
   const { rules, addRule, removeRule, toggleState } = useCustomRules(app.id);
 
   // Raising is manual: nothing evaluates a rule, so a breach can't trigger this
-  // itself. createCaseFromRule is the seam an evaluator would call instead.
-  const raiseCase = (rule: CustomRule) => {
-    if (!rule.caseRouting) return;
-    const existing = loadCases();
-    const created = createCaseFromRule(rule, rule.caseRouting, existing);
-    saveCases([created, ...existing]);
-    toast.success(`${created.reference} raised from ${rule.id}`, {
-      description: created.owner ? `Assigned to ${created.owner}` : "Unassigned",
-    });
+  // itself. The real evaluator posts the same identity to /api/cases/ingest
+  // along with the breach figures this cannot know.
+  //
+  // Everything but priority and owner is derived rather than asked for — the
+  // app is the assurance, the rule's entity is the module, its category is the
+  // issue type.
+  //
+  // `assurance` and `ruleCategory` line up with the case catalog exactly: all
+  // eight app names are catalog assurances whose codes equal the app prefixes,
+  // and all fifteen rule categories are catalog rule categories.
+  //
+  // `module` does NOT line up yet. Only Usage Assurance's entities are all
+  // catalog modules; the other seven carry entities the catalog has no module
+  // for (Rating's "Rated Event"/"Price Plan"/"Product", Network's five, and so
+  // on). It is sent as-is because the entity is what the rule actually targets
+  // — silently dropping it would hide the mismatch. If the case service rejects
+  // unknown modules, reconcile platform-metadata `entities` with the catalog's
+  // `modules` rather than mapping here.
+  const raiseCase = async (rule: CustomRule) => {
+    if (!rule.caseRouting || raising) return;
+    setRaising(rule.id);
+    try {
+      const created = await createCase({
+        title: rule.name,
+        description:
+          rule.description.trim() ||
+          `${rule.category} control ${rule.id} breached on ${rule.entity}.`,
+        assurance: app.name,
+        module: rule.entity,
+        ruleId: rule.id,
+        ruleName: rule.name,
+        ruleCategory: rule.category,
+        severity: rule.caseRouting.priority,
+        status: "Open",
+        owner: rule.caseRouting.owner,
+        // A reconciliation rule already names both sides; anything else has no
+        // feeds to report rather than a blank pair worth inventing.
+        ...(rule.comparison?.table1
+          ? {
+              sourceFeed: tableLabel(rule.comparison.table1),
+              ...(rule.comparison.table2
+                ? { targetFeed: tableLabel(rule.comparison.table2) }
+                : {}),
+            }
+          : {}),
+        createdBy: "controls",
+        // No expected/actual, impact or affected count: nothing has run, and a
+        // zero would read as a measured result.
+      });
+      toast.success(`${created.reference} raised from ${rule.id}`, {
+        description: created.owner ? `Assigned to ${created.owner}` : "Unassigned",
+      });
+    } catch (e) {
+      toast.error(`Could not raise a case for ${rule.id}`, {
+        description: (e as Error).message,
+      });
+    } finally {
+      setRaising(null);
+    }
   };
 
   const scoped = RULE_CATEGORIES.filter(
@@ -137,9 +189,10 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
                           size="sm"
                           className="h-6 px-2 text-xs"
                           title="Open a case in Case Management using this rule's routing"
+                          disabled={raising === r.id}
                           onClick={() => raiseCase(r)}
                         >
-                          Raise case
+                          {raising === r.id ? "Raising…" : "Raise case"}
                         </Button>
                       )}
                       <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-destructive" onClick={() => removeRule(r.id)}>
