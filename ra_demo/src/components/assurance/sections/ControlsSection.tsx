@@ -5,7 +5,9 @@ import { Panel, SectionHeader, Tag } from "../primitives";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { RuleBuilder } from "../RuleBuilder";
-import { useCustomRules } from "@/lib/assurance/rule-authoring";
+import { useCustomRules, type CustomRule } from "@/lib/assurance/rule-authoring";
+import { createCaseFromRule, loadCases, saveCases } from "@/lib/casesDemo";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export function ControlsSection({ app }: { app: AppMetadata }) {
@@ -13,6 +15,18 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("All");
   const { rules, addRule, removeRule, toggleState } = useCustomRules(app.id);
+
+  // Raising is manual: nothing evaluates a rule, so a breach can't trigger this
+  // itself. createCaseFromRule is the seam an evaluator would call instead.
+  const raiseCase = (rule: CustomRule) => {
+    if (!rule.caseRouting) return;
+    const existing = loadCases();
+    const created = createCaseFromRule(rule, rule.caseRouting, existing);
+    saveCases([created, ...existing]);
+    toast.success(`${created.reference} raised from ${rule.id}`, {
+      description: created.owner ? `Assigned to ${created.owner}` : "Unassigned",
+    });
+  };
 
   const scoped = RULE_CATEGORIES.filter((c) => app.ruleTypes.includes(c) || app.ruleLibrary.some((r) => r.category === c));
 
@@ -115,6 +129,17 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
                       <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => toggleState(r.id)}>
                         {r.state === "Active" ? "Pause" : "Activate"}
                       </Button>
+                      {r.caseRouting?.raiseCase && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          title="Open a case in Assurance Cases using this rule's routing"
+                          onClick={() => raiseCase(r)}
+                        >
+                          Raise case
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-destructive" onClick={() => removeRule(r.id)}>
                         Delete
                       </Button>

@@ -28,6 +28,10 @@ export const FINDING_TYPES = [
   { key: "file_sequence_check", label: "Missing File Sequence" },
   { key: "record_sequence_check", label: "Record Sequence Gap" },
   { key: "file_exception", label: "File Exception" },
+  // The six above all key to a report. A Controls rule breach is a distinct
+  // origin and needs its own key, or findingLabel() falls through to the raw
+  // string on every case raised from a rule.
+  { key: "control_rule", label: "Control Rule Breach" },
 ] as const;
 
 export const findingLabel = (key: string) => FINDING_TYPES.find((f) => f.key === key)?.label ?? key;
@@ -79,6 +83,16 @@ export interface AssuranceCase {
   trace: TraceRecord[];
   comments: CaseComment[];
   savedInsights: { id: string; body: string; at: string }[];
+  /**
+   * The Controls rule that raised this case, when it came from one.
+   *
+   * Optional on both counts: cases already in storage predate these fields, and
+   * analyst-raised cases have no source rule. `sourceAppId` is the assurance app
+   * the rule belongs to, so the case can link back to
+   * /assurance/{sourceAppId}/controls.
+   */
+  sourceRuleId?: string;
+  sourceAppId?: string;
 }
 
 // The signed-in demo analyst. Cases owned by this name populate "Self Assigned".
@@ -186,6 +200,71 @@ export function saveCases(next: AssuranceCase[]) {
 export function newId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `c-${Math.floor(Math.random() * 1e9)}`;
+}
+
+/**
+ * Next case reference. Floors at the highest seeded reference so a fresh store
+ * doesn't reissue a number the SEED already used.
+ */
+export function nextReference(cases: AssuranceCase[]): string {
+  const n =
+    cases.reduce((m, c) => Math.max(m, Number(c.reference.replace(/\D/g, "")) || 0), 2031) + 1;
+  return `CASE-${n}`;
+}
+
+/**
+ * Build a case from a Controls rule and its routing policy.
+ *
+ * This is the seam: today the Controls table calls it from a button, and a real
+ * rule evaluator would call it with the same two arguments plus the breach
+ * figures. Origin is "auto_detected" because a control raised it, not a person.
+ *
+ * The rule is typed structurally rather than importing CustomRule, so this
+ * module stays free of a dependency on the assurance rule model.
+ */
+export function createCaseFromRule(
+  rule: {
+    id: string;
+    appId: string;
+    name: string;
+    description: string;
+    category: string;
+    entity: string;
+  },
+  routing: { priority: string; owner: string; findingType: string; stream: string },
+  existing: AssuranceCase[],
+): AssuranceCase {
+  const now = new Date().toISOString();
+  return {
+    id: newId(),
+    reference: nextReference(existing),
+    title: rule.name,
+    description:
+      rule.description.trim() ||
+      `${rule.category} control ${rule.id} breached on ${rule.entity}.`,
+    origin: "auto_detected",
+    findingType: routing.findingType,
+    severity: routing.priority,
+    status: "Open",
+    action: "NA",
+    owner: routing.owner.trim(),
+    stream: routing.stream,
+    nodeId: "—",
+    linkedTxnId: "—",
+    linkedBatch: "—",
+    // No evaluator has run, so there are no figures to report. Zero here is
+    // honest; a real breach would supply both.
+    estimatedImpact: 0,
+    affectedCount: 0,
+    createdAt: now,
+    updatedAt: now,
+    evidence: null,
+    trace: [],
+    comments: [],
+    savedInsights: [],
+    sourceRuleId: rule.id,
+    sourceAppId: rule.appId,
+  };
 }
 
 export const fmtMoney = (n: number) => `$${new Intl.NumberFormat("en-US").format(Math.round(n))}`;

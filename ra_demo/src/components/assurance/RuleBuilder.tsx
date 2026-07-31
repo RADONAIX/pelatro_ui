@@ -5,12 +5,21 @@ import { RULE_CATEGORIES } from "@/lib/assurance/platform-metadata";
 import {
   CATEGORY_PARAMS,
   COMPARISON_CATEGORIES,
+  emptyCaseRouting,
   emptyComparison,
   type AttrPair,
+  type CaseRouting,
   type CustomRule,
   type RuleComparison,
 } from "@/lib/assurance/rule-authoring";
 import { RULE_TABLES, tableColumns } from "@/lib/assurance/tables";
+// Case vocabularies, aliased — this file already has its own SEVERITIES for the
+// rule's own severity, which is a narrower set than a case's.
+import {
+  FINDING_TYPES,
+  SEVERITIES as CASE_SEVERITIES,
+  STREAMS,
+} from "@/lib/casesDemo";
 import {
   Dialog,
   DialogContent,
@@ -64,6 +73,7 @@ export function RuleBuilder({
   // Kept mounted across category changes so switching away and back — or
   // toggling Single/Multiple — doesn't discard a half-built comparison.
   const [comparison, setComparison] = useState<RuleComparison>(emptyComparison);
+  const [routing, setRouting] = useState<CaseRouting>(() => emptyCaseRouting("high"));
 
   const fields = CATEGORY_PARAMS[category];
   const isComparison = COMPARISON_CATEGORIES.has(category);
@@ -92,6 +102,7 @@ export function RuleBuilder({
     setState("Draft");
     setParams({});
     setComparison(emptyComparison());
+    setRouting(emptyCaseRouting("high"));
   }
 
   function submit() {
@@ -123,6 +134,9 @@ export function RuleBuilder({
                 },
           }
         : {}),
+      // Omitted entirely when not raising, so a rule that routes nowhere carries
+      // no policy at all rather than a disabled one.
+      ...(routing.raiseCase ? { caseRouting: { ...routing, owner: routing.owner.trim() } } : {}),
     });
     reset();
     setOpen(false);
@@ -215,7 +229,16 @@ export function RuleBuilder({
             </div>
             <div className="space-y-1.5">
               <Label>Severity</Label>
-              <Select value={severity} onValueChange={(v) => setSeverity(v as CustomRule["severity"])}>
+              <Select
+                value={severity}
+                onValueChange={(v) => {
+                  const next = v as CustomRule["severity"];
+                  setSeverity(next);
+                  // Case priority tracks rule severity until the author edits it
+                  // below — one control instead of two saying the same thing.
+                  setRouting((r) => ({ ...r, priority: next }));
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -271,18 +294,38 @@ export function RuleBuilder({
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Lifecycle state</Label>
-            <Select value={state} onValueChange={(v) => setState(v as CustomRule["state"])}>
-              <SelectTrigger className="sm:w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Draft">Draft — not scheduled</SelectItem>
-                <SelectItem value="Active">Active — scheduled for execution</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Lifecycle state</Label>
+              <Select value={state} onValueChange={(v) => setState(v as CustomRule["state"])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Draft">Draft — not scheduled</SelectItem>
+                  <SelectItem value="Active">Active — scheduled for execution</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Case Management</Label>
+              <Select
+                value={routing.raiseCase ? "yes" : "no"}
+                onValueChange={(v) => setRouting((r) => ({ ...r, raiseCase: v === "yes" }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="no">Don&apos;t raise a case</SelectItem>
+                  <SelectItem value="yes">Raise a case on breach</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+
+          {routing.raiseCase && <CaseRoutingEditor value={routing} onChange={setRouting} />}
         </div>
 
         <DialogFooter>
@@ -478,5 +521,100 @@ function ColumnSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Case routing — what Case Management should do when this rule breaches.
+//
+// Nothing evaluates a CustomRule, so this is policy, not behaviour: the Controls
+// table reads it for its manual "Raise case" action, and a real evaluator would
+// read exactly the same block. Every vocabulary here comes from casesDemo so a
+// rule-raised case is indistinguishable from a hand-raised one.
+// ---------------------------------------------------------------------------
+
+function CaseRoutingEditor({
+  value,
+  onChange,
+}: Readonly<{
+  value: CaseRouting;
+  onChange: (next: CaseRouting) => void;
+}>) {
+  const set = (patch: Partial<CaseRouting>) => onChange({ ...value, ...patch });
+
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        Case routing
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Priority</Label>
+          <Select
+            value={value.priority}
+            onValueChange={(v) => set({ priority: v as CaseRouting["priority"] })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CASE_SEVERITIES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="case-owner">Assign to</Label>
+          <Input
+            id="case-owner"
+            value={value.owner}
+            onChange={(e) => set({ owner: e.target.value })}
+            placeholder="Leave blank to raise unassigned"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Finding type</Label>
+          <Select value={value.findingType} onValueChange={(v) => set({ findingType: v })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FINDING_TYPES.map((f) => (
+                <SelectItem key={f.key} value={f.key}>
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Stream</Label>
+          <Select value={value.stream} onValueChange={(v) => set({ stream: v })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STREAMS.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Cases open in Assurance Cases under Operations. No evaluator runs this rule yet — raise one
+        from the Controls table to see it end to end.
+      </p>
+    </div>
   );
 }

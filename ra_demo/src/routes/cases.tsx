@@ -13,7 +13,7 @@ import { CaseInvestigation } from "@/components/cases/CaseInvestigation";
 import { downloadBlob } from "@/services";
 import {
   FINDING_TYPES, SEVERITIES, STREAMS, CURRENT_ANALYST,
-  findingLabel, fmtDate, loadCases, newId, relative, saveCases,
+  findingLabel, fmtDate, loadCases, newId, nextReference, relative, saveCases,
   type AssuranceCase,
 } from "@/lib/casesDemo";
 
@@ -212,10 +212,9 @@ function CasesPage() {
 
   const addCase = () => {
     if (!form.title.trim()) return;
-    const n = cases.reduce((m, c) => Math.max(m, Number(c.reference.replace(/\D/g, "")) || 0), 2031) + 1;
     const now = new Date().toISOString();
     const c: AssuranceCase = {
-      id: newId(), reference: `CASE-${n}`, title: form.title.trim(),
+      id: newId(), reference: nextReference(cases), title: form.title.trim(),
       description: form.description.trim() || "Raised manually by an analyst.",
       origin: "analyst_raised", findingType: form.findingType, severity: form.severity,
       status: "Open", action: "NA", owner: form.owner.trim() || CURRENT_ANALYST,

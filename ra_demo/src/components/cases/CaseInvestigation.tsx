@@ -121,6 +121,8 @@ export function CaseInvestigation({
                   <Kv k="Assigned to" v={c.owner} />
                   <Kv k="Created" v={fmtDate(c.createdAt)} />
                   <Kv k="Origin" v={c.origin} mono />
+                  {/* Only cases raised from a Controls rule carry a source. */}
+                  {c.sourceRuleId && <Kv k="Source rule" v={c.sourceRuleId} mono />}
                   <Kv k="Stream / Node" v={`${c.stream} · ${c.nodeId}`} mono />
                   <Kv k="Linked batch" v={c.linkedBatch} mono />
                   <Kv k="Linked txn" v={c.linkedTxnId} mono />

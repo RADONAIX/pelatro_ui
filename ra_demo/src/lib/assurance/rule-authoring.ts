@@ -39,6 +39,38 @@ export const COMPARISON_CATEGORIES: ReadonlySet<RuleCategory> = new Set<RuleCate
   "Reconciliation",
 ]);
 
+/**
+ * What should happen in Case Management when this rule breaches.
+ *
+ * Policy only — nothing evaluates a CustomRule, so no case is raised
+ * automatically. The Controls table exposes a manual "Raise case" action that
+ * reads this, and createCaseFromRule() in src/lib/casesDemo.ts is the seam a
+ * real evaluator would call with exactly the same input.
+ *
+ * Vocabularies are deliberately the ones cases already use (SEVERITIES,
+ * FINDING_TYPES, STREAMS in casesDemo.ts) rather than parallel enums — that is
+ * what makes a rule-raised case indistinguishable from a hand-raised one.
+ */
+export type CaseRouting = {
+  raiseCase: boolean;
+  /** Case priority. Seeded from the rule's severity; cases also allow "low". */
+  priority: "low" | "medium" | "high" | "critical";
+  /** Free text, "" = unassigned. Matches every other assignment control here. */
+  owner: string;
+  /** A FINDING_TYPES key. */
+  findingType: string;
+  /** A STREAMS value. */
+  stream: string;
+};
+
+export const emptyCaseRouting = (severity: CustomRule["severity"]): CaseRouting => ({
+  raiseCase: false,
+  priority: severity,
+  owner: "",
+  findingType: "control_rule",
+  stream: "AIR",
+});
+
 export type CustomRule = {
   id: string;
   appId: string;
@@ -50,6 +82,11 @@ export type CustomRule = {
   frequency: "Real-time" | "Hourly" | "Daily" | "Cycle";
   state: "Draft" | "Active";
   params: Record<string, string>;
+  /**
+   * Present only when the author opted in. Optional so rules already in
+   * localStorage from before this shape existed still parse.
+   */
+  caseRouting?: CaseRouting;
   /**
    * Present only for COMPARISON_CATEGORIES. Optional so rules already in
    * localStorage from before this shape existed still parse.
