@@ -71,7 +71,17 @@ export type AppMetadata = {
   summary: string;
   entities: string[];
   ruleTypes: RuleCategory[];
-  ruleLibrary: { name: string; category: RuleCategory; severity: "critical" | "high" | "medium" }[];
+  /**
+   * The demo use cases for this application. `category` is the primary type
+   * (drives filtering); `categories` carries the full combination when a use
+   * case is evaluated by more than one rule type.
+   */
+  ruleLibrary: {
+    name: string;
+    category: RuleCategory;
+    categories?: RuleCategory[];
+    severity: "critical" | "high" | "medium";
+  }[];
   dashboards: string[];
   kpis: KpiDef[];
   leakageSeries: { period: string; detected: number; recovered: number }[];
@@ -127,14 +137,18 @@ export const APPS: AppMetadata[] = [
     entities: ["Usage Events", "Subscriber", "MSC", "CDR", "Mediation", "Rating", "Billing"],
     ruleTypes: ["Completeness", "Aggregation", "Threshold", "Reconciliation"],
     ruleLibrary: [
-      { name: "Missing CDR", category: "Completeness", severity: "critical" },
-      { name: "Duplicate CDR", category: "Duplicate", severity: "high" },
-      { name: "Missing Rating", category: "Existence", severity: "critical" },
-      { name: "Late Mediation", category: "Temporal", severity: "medium" },
-      { name: "Sequence Validation", category: "Sequence", severity: "high" },
-      { name: "Switch vs Mediation Count", category: "Reconciliation", severity: "critical" },
-      { name: "Daily Volume Deviation", category: "Statistical", severity: "medium" },
-      { name: "Zero Duration Spike", category: "Threshold", severity: "medium" },
+      { name: "Missing Usage Data Files", category: "Completeness", severity: "critical" },
+      { name: "Incorrect Duration / Volume Normalization", category: "Calculation", severity: "high" },
+      { name: "Incorrect Timestamp / Time Zone", category: "Temporal", severity: "high" },
+      { name: "Incorrect A/B Number Format", category: "Pattern Matching", severity: "medium" },
+      { name: "Customer Not Identified Correctly", category: "Referential Integrity", severity: "critical" },
+      {
+        name: "Usage Loss During High Utilization",
+        category: "Threshold",
+        categories: ["Threshold", "Statistical"],
+        severity: "critical",
+      },
+      { name: "Retail vs Interconnect Record Mismatch", category: "Comparison", severity: "high" },
     ],
     dashboards: ["Usage Leakage", "Usage KPIs"],
     kpis: [
@@ -173,13 +187,7 @@ export const APPS: AppMetadata[] = [
     entities: ["Invoice", "Bill Cycle", "Account", "Tax", "Payment"],
     ruleTypes: ["Calculation", "Aggregation", "Duplicate", "Comparison"],
     ruleLibrary: [
-      { name: "Duplicate Invoice", category: "Duplicate", severity: "critical" },
-      { name: "Wrong Tax", category: "Calculation", severity: "critical" },
-      { name: "Wrong Discount", category: "Calculation", severity: "high" },
-      { name: "Bill Comparison", category: "Comparison", severity: "high" },
-      { name: "Bill Completeness", category: "Completeness", severity: "critical" },
-      { name: "Cycle Close Delay", category: "Temporal", severity: "medium" },
-      { name: "Account Reference Break", category: "Referential Integrity", severity: "high" },
+      { name: "Invoice Total ≠ Sum of Rated Charges", category: "Aggregation", severity: "critical" },
     ],
     dashboards: ["Billing Leakage", "Billing Accuracy"],
     kpis: [
@@ -218,11 +226,21 @@ export const APPS: AppMetadata[] = [
     entities: ["Rated Event", "Tariff", "Price Plan", "Product", "Subscriber"],
     ruleTypes: ["Calculation", "Comparison", "Threshold", "Pattern Matching"],
     ruleLibrary: [
-      { name: "Tariff Mismatch", category: "Comparison", severity: "critical" },
-      { name: "Zero Rated Event", category: "Threshold", severity: "high" },
-      { name: "Plan Not Found", category: "Existence", severity: "critical" },
-      { name: "Rounding Deviation", category: "Calculation", severity: "medium" },
-      { name: "Promo Overlap", category: "Pattern Matching", severity: "medium" },
+      {
+        name: "Expected Charge vs Actual Charge",
+        category: "Calculation",
+        categories: ["Calculation", "Comparison"],
+        severity: "critical",
+      },
+      {
+        name: "Zero Rated / Default Rated Events",
+        category: "Existence",
+        categories: ["Existence", "Comparison"],
+        severity: "high",
+      },
+      { name: "Bundle / Discount Applied Incorrectly", category: "Graph Relationship", severity: "high" },
+      { name: "Account Not Debited for Charged Event", category: "Reconciliation", severity: "critical" },
+      { name: "Customer Charged More Than Once", category: "Duplicate", severity: "critical" },
     ],
     dashboards: ["Rating Leakage", "Tariff Accuracy"],
     kpis: [
@@ -261,11 +279,9 @@ export const APPS: AppMetadata[] = [
     entities: ["Session", "Balance", "OCS Account", "Reservation", "Top-up"],
     ruleTypes: ["Reconciliation", "Sequence", "Threshold", "Temporal"],
     ruleLibrary: [
-      { name: "Unreleased Reservation", category: "Temporal", severity: "critical" },
-      { name: "Balance Drift", category: "Reconciliation", severity: "critical" },
-      { name: "Session Gap", category: "Sequence", severity: "high" },
-      { name: "Negative Balance", category: "Threshold", severity: "high" },
-      { name: "Top-up Not Applied", category: "Existence", severity: "critical" },
+      { name: "Reconciliation between AIR Raw vs AIR Processed", category: "Reconciliation", severity: "critical" },
+      { name: "Duplicate Usage Records", category: "Duplicate", severity: "high" },
+      { name: "Missing File Sequence", category: "Sequence", severity: "critical" },
     ],
     dashboards: ["Charging Leakage", "Balance Integrity"],
     kpis: [
@@ -347,11 +363,19 @@ export const APPS: AppMetadata[] = [
     entities: ["Partner", "Settlement", "Interconnect CDR", "Agreement", "Invoice"],
     ruleTypes: ["Reconciliation", "Calculation", "Comparison", "Aggregation"],
     ruleLibrary: [
-      { name: "Settlement Mismatch", category: "Reconciliation", severity: "critical" },
-      { name: "Rate Card Deviation", category: "Comparison", severity: "high" },
-      { name: "Missing Interconnect CDR", category: "Completeness", severity: "critical" },
-      { name: "Commission Miscalculation", category: "Calculation", severity: "high" },
-      { name: "Agreement Expiry", category: "Temporal", severity: "medium" },
+      {
+        name: "Partner Settlement Invoice Volume Mismatch",
+        category: "Reconciliation",
+        categories: ["Reconciliation", "Comparison"],
+        severity: "critical",
+      },
+      { name: "Partner Traffic Routed to Wrong Partner", category: "Graph Relationship", severity: "high" },
+      {
+        name: "Partner Invoice Pricing Incorrect",
+        category: "Calculation",
+        categories: ["Calculation", "Comparison"],
+        severity: "high",
+      },
     ],
     dashboards: ["Partner Leakage", "Settlement Accuracy"],
     kpis: [
@@ -500,10 +524,16 @@ function hash(seed: string) {
   };
 }
 
+/** Every rule type a library entry (or control) is evaluated by. */
+export function ruleCategories(rule: { category: RuleCategory; categories?: RuleCategory[] }): RuleCategory[] {
+  return rule.categories ?? [rule.category];
+}
+
 export type Control = {
   id: string;
   name: string;
   category: RuleCategory;
+  categories: RuleCategory[];
   entity: string;
   severity: "critical" | "high" | "medium";
   frequency: "Real-time" | "Hourly" | "Daily" | "Cycle";
@@ -513,17 +543,19 @@ export type Control = {
   lastRun: string;
 };
 
+/** One control per rule-library entry — the app's demo use cases, nothing synthetic. */
 export function buildControls(app: AppMetadata, limit = 24): Control[] {
   const rnd = hash(app.id + "controls");
   const freqs: Control["frequency"][] = ["Real-time", "Hourly", "Daily", "Cycle"];
-  return Array.from({ length: limit }, (_, i) => {
-    const rule = app.ruleLibrary[i % app.ruleLibrary.length];
+  return Array.from({ length: Math.min(limit, app.ruleLibrary.length) }, (_, i) => {
+    const rule = app.ruleLibrary[i];
     const r = rnd();
     const status: Control["status"] = r > 0.82 ? "Fail" : r > 0.64 ? "Warning" : "Pass";
     return {
       id: `${app.prefix}${String(i + 1).padStart(3, "0")}`,
-      name: `${rule.name}${i >= app.ruleLibrary.length ? ` — variant ${Math.floor(i / app.ruleLibrary.length) + 1}` : ""}`,
+      name: rule.name,
       category: rule.category,
+      categories: ruleCategories(rule),
       entity: app.entities[Math.floor(rnd() * app.entities.length)],
       severity: rule.severity,
       frequency: freqs[Math.floor(rnd() * freqs.length)],

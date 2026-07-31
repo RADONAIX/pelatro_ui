@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import type { AppMetadata } from "@/lib/assurance/platform-metadata";
-import { RULE_CATEGORIES, buildControls } from "@/lib/assurance/platform-metadata";
+import type { AppMetadata, RuleCategory } from "@/lib/assurance/platform-metadata";
+import { RULE_CATEGORIES, buildControls, ruleCategories } from "@/lib/assurance/platform-metadata";
 import { Panel, SectionHeader, Tag } from "../primitives";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 export function ControlsSection({ app }: { app: AppMetadata }) {
   const all = useMemo(() => buildControls(app, 24), [app]);
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string>("All");
+  const [category, setCategory] = useState<RuleCategory | "All">("All");
   const { rules, addRule, removeRule, toggleState } = useCustomRules(app.id);
 
   // Raising is manual: nothing evaluates a rule, so a breach can't trigger this
@@ -28,11 +28,13 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
     });
   };
 
-  const scoped = RULE_CATEGORIES.filter((c) => app.ruleTypes.includes(c) || app.ruleLibrary.some((r) => r.category === c));
+  const scoped = RULE_CATEGORIES.filter(
+    (c) => app.ruleTypes.includes(c) || app.ruleLibrary.some((r) => ruleCategories(r).includes(c)),
+  );
 
   const rows = all.filter(
     (c) =>
-      (category === "All" || c.category === category) &&
+      (category === "All" || c.categories.includes(category)) &&
       (c.name.toLowerCase().includes(query.toLowerCase()) ||
         c.id.toLowerCase().includes(query.toLowerCase())),
   );
@@ -57,7 +59,7 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
       <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
         <Panel title="Rule categories in scope">
           <div className="p-2">
-            {["All", ...scoped].map((c) => (
+            {(["All", ...scoped] as (RuleCategory | "All")[]).map((c) => (
               <button
                 key={c}
                 onClick={() => setCategory(c)}
@@ -150,7 +152,7 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
                   <tr key={c.id} className="border-b border-border/60 last:border-0 hover:bg-accent/40">
                     <td className="px-4 py-2 font-mono text-xs text-primary">{c.id}</td>
                     <td className="px-4 py-2">{c.name}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{c.category}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{c.categories.join(" + ")}</td>
                     <td className="px-4 py-2 text-muted-foreground">{c.entity}</td>
                     <td className="px-4 py-2">
                       <Tag value={c.severity} />

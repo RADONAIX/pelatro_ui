@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import type { AppMetadata, RuleCategory } from "@/lib/assurance/platform-metadata";
-import { RULE_CATEGORIES } from "@/lib/assurance/platform-metadata";
+import { RULE_CATEGORIES, ruleCategories } from "@/lib/assurance/platform-metadata";
 import {
   CATEGORY_PARAMS,
   COMPARISON_CATEGORIES,
@@ -56,7 +56,7 @@ export function RuleBuilder({
   const scoped = useMemo(
     () =>
       RULE_CATEGORIES.filter(
-        (c) => app.ruleTypes.includes(c) || app.ruleLibrary.some((r) => r.category === c),
+        (c) => app.ruleTypes.includes(c) || app.ruleLibrary.some((r) => ruleCategories(r).includes(c)),
       ),
     [app],
   );

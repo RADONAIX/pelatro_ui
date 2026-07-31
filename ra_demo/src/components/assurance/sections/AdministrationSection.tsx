@@ -1,5 +1,5 @@
 import type { AppMetadata } from "@/lib/assurance/platform-metadata";
-import { RULE_CATEGORIES, UNIVERSAL_SERVICES } from "@/lib/assurance/platform-metadata";
+import { RULE_CATEGORIES, UNIVERSAL_SERVICES, ruleCategories } from "@/lib/assurance/platform-metadata";
 import { Panel, SectionHeader, Tag } from "../primitives";
 
 export function AdministrationSection({ app }: { app: AppMetadata }) {
@@ -57,7 +57,7 @@ export function AdministrationSection({ app }: { app: AppMetadata }) {
           <Panel title="Primitive rule categories" subtitle="15 universal">
             <div className="flex flex-wrap gap-1.5 p-4">
               {RULE_CATEGORIES.map((c) => {
-                const enabled = app.ruleTypes.includes(c) || app.ruleLibrary.some((r) => r.category === c);
+                const enabled = app.ruleTypes.includes(c) || app.ruleLibrary.some((r) => ruleCategories(r).includes(c));
                 return (
                   <span
                     key={c}
