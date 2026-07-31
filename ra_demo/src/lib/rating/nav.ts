@@ -77,18 +77,6 @@ export const RATING_NAV: RatingNavItem[] = [
     icon: Activity,
     phase: 1,
   },
-  // The platform-wide case queue (/cases), not the rating exception list
-  // (/rating/exceptions). Case Management is where every assurance's rules land
-  // their findings — the same screen an analyst raises a case on by hand — so it
-  // is meaningful under all eight scopes, which the rating-only exception list
-  // is not. /rating/exceptions is unchanged and still reached by drilling down
-  // from the rating dashboard, runs and pipeline screens.
-  {
-    to: "/cases",
-    label: "Case Management",
-    icon: Briefcase,
-    phase: 1,
-  },
   {
     to: "/rating/rules",
     label: "Rule Management",
@@ -165,6 +153,21 @@ export const RATING_NAV: RatingNavItem[] = [
         phase: 2,
       },
     ],
+  },
+  // The platform-wide case queue (/cases), not the rating exception list
+  // (/rating/exceptions). Case Management is where every assurance's rules land
+  // their findings — the same screen an analyst raises a case on by hand — so it
+  // is meaningful under all eight scopes, which the rating-only exception list
+  // is not. /rating/exceptions is unchanged and still reached by drilling down
+  // from the rating dashboard, runs and pipeline screens.
+  //
+  // Sits after Operations: a case is the outcome of the controls configured
+  // there, so the list reads setup-then-findings rather than the reverse.
+  {
+    to: "/cases",
+    label: "Case Management",
+    icon: Briefcase,
+    phase: 1,
   },
   {
     to: "/rating/monitoring",

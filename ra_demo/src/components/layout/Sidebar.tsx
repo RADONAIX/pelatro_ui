@@ -2,8 +2,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
+  // Aliased: `Home` collides with nothing here today, but the alias keeps the
+  // icon distinguishable from the nav item it belongs to.
+  Home as HomeIcon,
   LayoutDashboard,
-  LayoutGrid,
   Settings2,
   ShieldCheck,
 } from "lucide-react";
@@ -18,14 +20,13 @@ import { catalogForScope } from "@/lib/reportCatalogs";
 
 // ---------------------------------------------------------------------------
 // One continuous module list, from two sources:
-//   RatingSidebarNav      — Reports, Pipelines, Case Management, Rule
-//                           Management (+children), Metadata Catalogue,
-//                           Operations, System Monitoring.
-//                           (src/lib/rating/nav.ts)
+//   RatingSidebarNav      — Reports, Pipelines, Rule Management (+children),
+//                           Metadata Catalogue, Operations, Case Management,
+//                           System Monitoring.  (src/lib/rating/nav.ts)
 //   AssuranceSidebarNav   — the entity scope for the app currently selected in
 //                           the header.
 //
-// Plus three injected above them: Overview, the cross-assurance Enterprise
+// Plus three injected above them: Home, the cross-assurance Enterprise
 // Dashboard, and the selected assurance's own Assurance Dashboard. There is
 // deliberately no fourth "Dashboard & KPIs" — see the note in rating/nav.ts.
 //
@@ -56,8 +57,8 @@ const RATING_REPORTS_PATH = "/rating/reports";
  */
 const OVERVIEW_ITEM: RatingNavItem = {
   to: "/overview",
-  label: "Overview",
-  icon: LayoutGrid,
+  label: "Home",
+  icon: HomeIcon,
   phase: 1,
 };
 
@@ -113,7 +114,7 @@ export function Sidebar({
 
   // The executive dashboard for the selected app. Scope-targeted like Controls,
   // so it is injected here rather than declared in RATING_NAV — and it sits
-  // directly under Overview, where choosing an assurance lands.
+  // directly under Home, where choosing an assurance lands.
   const assuranceDashboard: RatingNavItem = useMemo(
     () => ({
       to: `/assurance/${app.id}/dashboard`,
