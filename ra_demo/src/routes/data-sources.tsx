@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Database, Plus, Trash2, X, Server, Activity, CheckCircle2 } from "lucide-react";
+import { Database, Plus, Trash2, X, Activity, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatTile } from "@/components/ui-kit/StatTile";
+import { MultiSelect } from "@/components/ui-kit/MultiSelect";
 import { loadConnections, connectionTarget, type DbConnection } from "@/lib/dbConnections";
 
 export const Route = createFileRoute("/data-sources")({ component: DataSourcesPage });
@@ -18,7 +19,13 @@ export const Route = createFileRoute("/data-sources")({ component: DataSourcesPa
 // connection defined in the admin Database Connections screen, so a target is
 // configured once and reused. The key is bumped because JSON.parse can't catch
 // the shape change and v2 rows would deserialize with no connectionId.
-const STORAGE_KEY = "radonaix_data_sources_v3";
+//
+// v4: a feed usually serves more than one assurance — AIR CDRs back both Usage
+// and Mediation — so `useCase: string` became `useCases: string[]`. Unlike the
+// v2→v3 bump this one migrates rather than discards: the old single value maps
+// cleanly onto a one-element array, so nobody loses sources they onboarded.
+const STORAGE_KEY = "radonaix_data_sources_v4";
+const LEGACY_KEY_V3 = "radonaix_data_sources_v3";
 
 const USE_CASES = [
   "Mediation Assurance",
@@ -36,39 +43,54 @@ interface DataSource {
   name: string;
   key: string;
   type: string;
-  useCase: string;
+  /** One feed can serve several assurances. */
+  useCases: string[];
   // References a connection from lib/dbConnections (admin → Database Connections).
   connectionId: string;
   recordsPerDay: number;
   enabled: boolean;
 }
 
+/** The v3 row shape, kept only so stored rows can be migrated forward. */
+type LegacyDataSourceV3 = Omit<DataSource, "useCases"> & { useCase?: string };
+
 // Seeded with the two real streams (AIR, SDP) plus dummy feeds so the demo opens
 // looking populated — every source type + use case represented, one disabled.
 // Note SDP, MSC and Exception Handler all share conn-rafms-replica: that reuse is
 // the reason connections were pulled out of the per-source rows.
 const SEED: DataSource[] = [
-  { id: "seed-air", name: "AIR", key: "air", type: "AIR CDR", useCase: "Usage Assurance", connectionId: "conn-rafms-primary", recordsPerDay: 4_050_000, enabled: true },
-  { id: "seed-sdp", name: "SDP", key: "sdp", type: "SDP CDR", useCase: "Rating Assurance", connectionId: "conn-rafms-replica", recordsPerDay: 40_550_000, enabled: true },
-  { id: "seed-msc", name: "MSC Voice", key: "msc", type: "Diameter", useCase: "Usage Assurance", connectionId: "conn-rafms-replica", recordsPerDay: 12_800_000, enabled: true },
-  { id: "seed-ocs", name: "OCS Charging", key: "ocs", type: "Diameter", useCase: "Billing Assurance", connectionId: "conn-ocs-charging", recordsPerDay: 28_300_000, enabled: true },
-  { id: "seed-exc", name: "Exception Handler", key: "exception", type: "Custom", useCase: "Mediation Assurance", connectionId: "conn-rafms-replica", recordsPerDay: 850_000, enabled: true },
-  { id: "seed-rech", name: "Prepaid Recharge", key: "recharge", type: "Mediation Feed", useCase: "Subscription Assurance", connectionId: "conn-recharge-store", recordsPerDay: 3_600_000, enabled: false },
-  { id: "seed-bill", name: "Postpaid Billing", key: "billing", type: "Mediation Feed", useCase: "Billing Assurance", connectionId: "conn-billing-core", recordsPerDay: 2_100_000, enabled: true },
+  { id: "seed-air", name: "AIR", key: "air", type: "AIR CDR", useCases: ["Usage Assurance", "Mediation Assurance"], connectionId: "conn-rafms-primary", recordsPerDay: 4_050_000, enabled: true },
+  { id: "seed-sdp", name: "SDP", key: "sdp", type: "SDP CDR", useCases: ["Rating Assurance", "Mediation Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 40_550_000, enabled: true },
+  { id: "seed-msc", name: "MSC Voice", key: "msc", type: "Diameter", useCases: ["Usage Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 12_800_000, enabled: true },
+  { id: "seed-ocs", name: "OCS Charging", key: "ocs", type: "Diameter", useCases: ["Billing Assurance", "Rating Assurance"], connectionId: "conn-ocs-charging", recordsPerDay: 28_300_000, enabled: true },
+  { id: "seed-exc", name: "Exception Handler", key: "exception", type: "Custom", useCases: ["Mediation Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 850_000, enabled: true },
+  { id: "seed-rech", name: "Prepaid Recharge", key: "recharge", type: "Mediation Feed", useCases: ["Subscription Assurance"], connectionId: "conn-recharge-store", recordsPerDay: 3_600_000, enabled: false },
+  { id: "seed-bill", name: "Postpaid Billing", key: "billing", type: "Mediation Feed", useCases: ["Billing Assurance"], connectionId: "conn-billing-core", recordsPerDay: 2_100_000, enabled: true },
 ];
+
+/** Widen a stored row to the current shape. Safe to run on already-v4 rows. */
+function migrate(row: DataSource & LegacyDataSourceV3): DataSource {
+  const { useCase, ...rest } = row;
+  if (Array.isArray(rest.useCases) && rest.useCases.length) return rest as DataSource;
+  return { ...rest, useCases: useCase ? [useCase] : [] } as DataSource;
+}
 
 function load(): DataSource[] {
   if (typeof window === "undefined") return SEED;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as DataSource[]) : null;
-    // Non-empty stored list wins; empty/blank (incl. a previously clobbered "[]")
-    // falls back to the seed so the demo never shows a blank screen on refresh.
-    if (Array.isArray(parsed) && parsed.length) return parsed;
-  } catch {
-    /* ignore malformed storage */
-  }
-  return SEED;
+  const read = (key: string) => {
+    try {
+      const raw = window.localStorage.getItem(key);
+      const parsed = raw ? (JSON.parse(raw) as (DataSource & LegacyDataSourceV3)[]) : null;
+      // Non-empty stored list wins; empty/blank (incl. a previously clobbered
+      // "[]") falls through so the demo never shows a blank screen on refresh.
+      return Array.isArray(parsed) && parsed.length ? parsed.map(migrate) : null;
+    } catch {
+      return null; /* ignore malformed storage */
+    }
+  };
+  // v4 first; otherwise carry v3 rows forward rather than silently reseeding
+  // over sources someone onboarded.
+  return read(STORAGE_KEY) ?? read(LEGACY_KEY_V3) ?? SEED;
 }
 
 function newId(): string {
@@ -84,12 +106,19 @@ interface SourceForm {
   name: string;
   key: string;
   type: string;
-  useCase: string;
+  useCases: Set<string>;
   connectionId: string;
   recordsPerDay: string;
 }
 
-const EMPTY_FORM: SourceForm = { name: "", key: "", type: SOURCE_TYPES[0], useCase: USE_CASES[0], connectionId: "", recordsPerDay: "" };
+const EMPTY_FORM: SourceForm = {
+  name: "",
+  key: "",
+  type: SOURCE_TYPES[0],
+  useCases: new Set<string>(),
+  connectionId: "",
+  recordsPerDay: "",
+};
 
 function DataSourcesPage() {
   const [sources, setSources] = useState<DataSource[]>([]);
@@ -120,7 +149,9 @@ function DataSourcesPage() {
     return { count: sources.length, connected, recordsPerDay: total };
   }, [sources]);
 
-  const canSave = form.name.trim() && form.key.trim() && form.connectionId;
+  // At least one assurance is required: a feed nothing consumes has no reason to
+  // be onboarded, and the table would show a blank cell for it.
+  const canSave = form.name.trim() && form.key.trim() && form.connectionId && form.useCases.size > 0;
 
   const addSource = () => {
     if (!canSave) return;
@@ -129,7 +160,9 @@ function DataSourcesPage() {
       name: form.name.trim(),
       key: form.key.trim().toLowerCase().replace(/\s+/g, "_"),
       type: form.type,
-      useCase: form.useCase,
+      // Ordered by USE_CASES rather than click order, so the table column reads
+      // consistently across rows.
+      useCases: USE_CASES.filter((u) => form.useCases.has(u)),
       connectionId: form.connectionId,
       recordsPerDay: Number(form.recordsPerDay) || 0,
       enabled: true,
@@ -137,7 +170,9 @@ function DataSourcesPage() {
     persist([...sources, ds]);
     setForm(EMPTY_FORM);
     setOpen(false);
-    toast.success(`Data source "${ds.name}" onboarded`, { description: `${ds.type} · ${connOf(ds.connectionId)?.name ?? ds.useCase}` });
+    toast.success(`Data source "${ds.name}" onboarded`, {
+      description: `${ds.type} · ${ds.useCases.length} assurance${ds.useCases.length === 1 ? "" : "s"}`,
+    });
   };
 
   const toggle = (id: string) =>
@@ -171,63 +206,111 @@ function DataSourcesPage() {
         <StatTile icon={Activity} label="Records / day" value={fmt(stats.recordsPerDay)} />
       </div>
 
-      {/* Source cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {sources.map((s) => (
-          <div key={s.id} className="bg-card border border-border rounded-xl p-5 shadow-sm flex flex-col gap-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="h-10 w-10 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-                  <Server className="h-5 w-5" />
-                </span>
-                <div className="min-w-0">
-                  <div className="font-semibold text-foreground leading-tight truncate">{s.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{s.key}</div>
-                </div>
-              </div>
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${s.enabled ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${s.enabled ? "bg-emerald-500" : "bg-muted-foreground/50"}`} />
-                {s.enabled ? "Connected" : "Disabled"}
-              </span>
-            </div>
+      {/* Source table.
+          Deliberately narrow: what identifies the feed, who consumes it, where
+          it comes from, how much it carries, and whether it's on. The
+          connection's host:port/database is infrastructure detail that the
+          connection name already stands for — it's a tooltip, not a column. */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] text-sm">
+            <thead className="text-left text-[11px] uppercase tracking-wider text-muted-foreground bg-muted/40">
+              <tr className="border-b border-border">
+                <th className="px-4 py-2.5 font-medium">Source</th>
+                <th className="px-4 py-2.5 font-medium">Type</th>
+                <th className="px-4 py-2.5 font-medium">Assurance use cases</th>
+                <th className="px-4 py-2.5 font-medium">Connection</th>
+                <th className="px-4 py-2.5 font-medium text-right">Records / day</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((s) => {
+                const conn = connOf(s.connectionId);
+                return (
+                  <tr key={s.id} className="border-b border-border/60 last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-2.5">
+                      <div className="font-medium text-foreground leading-tight">{s.name}</div>
+                      <div className="text-[11px] font-mono text-muted-foreground">{s.key}</div>
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{s.type}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1">
+                        {s.useCases.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          s.useCases.map((u) => (
+                            <Badge key={u} tone="primary">
+                              {u.replace(" Assurance", "")}
+                            </Badge>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                    <td
+                      className="px-4 py-2.5 text-muted-foreground"
+                      title={conn ? connectionTarget(conn) : undefined}
+                    >
+                      {conn ? (
+                        <span className="font-mono text-xs">{conn.name}</span>
+                      ) : (
+                        <span className="text-xs text-destructive">connection missing</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-foreground">
+                      {fmt(s.recordsPerDay)}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${s.enabled ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${s.enabled ? "bg-success" : "bg-muted-foreground/50"}`}
+                        />
+                        {s.enabled ? "Connected" : "Disabled"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => toggle(s.id)}
+                          className="text-xs text-muted-foreground hover:text-foreground transition"
+                        >
+                          {s.enabled ? "Disable" : "Enable"}
+                        </button>
+                        <button
+                          onClick={() => remove(s.id)}
+                          aria-label={`Remove ${s.name}`}
+                          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Remove
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
 
-            <div className="flex flex-wrap gap-2">
-              <Badge>{s.type}</Badge>
-              <Badge tone="primary">{s.useCase}</Badge>
-            </div>
-
-            {(() => {
-              const conn = connOf(s.connectionId);
-              return (
-                <dl className="text-xs text-muted-foreground space-y-1">
-                  <Row k="Connection" v={conn?.name ?? "— connection missing"} mono={!!conn} />
-                  <Row k="Target" v={conn ? connectionTarget(conn) : "—"} mono={!!conn} />
-                  <Row k="Records / day" v={fmt(s.recordsPerDay)} />
-                </dl>
-              );
-            })()}
-
-            <div className="flex items-center justify-between pt-2 border-t border-border mt-auto">
-              <label className="inline-flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-                <input type="checkbox" checked={s.enabled} onChange={() => toggle(s.id)} className="h-4 w-4 accent-[var(--primary,#4f46e5)]" />
-                {s.enabled ? "Enabled" : "Enable"}
-              </label>
-              <button onClick={() => remove(s.id)} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-red-600 transition">
-                <Trash2 className="h-3.5 w-3.5" /> Remove
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {sources.length === 0 && (
-          <div className="col-span-full flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 py-16 text-center">
-            <Database className="h-10 w-10 text-muted-foreground/40" />
-            <p className="mt-3 text-sm text-muted-foreground">No data sources yet.</p>
-            <button onClick={() => setOpen(true)} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
-              <Plus className="h-4 w-4" /> Add your first source
-            </button>
-          </div>
-        )}
+              {sources.length === 0 && (
+                <tr>
+                  <td colSpan={7}>
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <Database className="h-10 w-10 text-muted-foreground/40" />
+                      <p className="mt-3 text-sm text-muted-foreground">No data sources yet.</p>
+                      <button
+                        onClick={() => setOpen(true)}
+                        className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+                      >
+                        <Plus className="h-4 w-4" /> Add your first source
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Add dialog */}
@@ -253,11 +336,29 @@ function DataSourcesPage() {
                   {SOURCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
               </FormField>
-              <FormField label="Assurance use case">
-                <select value={form.useCase} onChange={(e) => setForm({ ...form, useCase: e.target.value })} className={inputCls}>
-                  {USE_CASES.map((u) => <option key={u} value={u}>{u}</option>)}
-                </select>
-              </FormField>
+              <div className="sm:col-span-2">
+                {/* A feed usually serves more than one assurance, so this is a
+                    multi-select. Rendered outside FormField: MultiSelect owns
+                    its own label and a <label> wrapper would steal its clicks. */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Assurance use cases
+                  </span>
+                  <MultiSelect
+                    options={USE_CASES.map((u) => ({ value: u, label: u }))}
+                    selected={form.useCases}
+                    onChange={(next) => setForm({ ...form, useCases: next as Set<string> })}
+                    placeholder="Select one or more…"
+                    minWidth={240}
+                    allowEmpty
+                  />
+                  {form.useCases.size === 0 && (
+                    <span className="text-[11px] text-muted-foreground">
+                      Pick at least one — it decides which assurances consume this feed.
+                    </span>
+                  )}
+                </div>
+              </div>
               <div className="sm:col-span-2">
                 <FormField label="Database connection">
                   <select value={form.connectionId} onChange={(e) => setForm({ ...form, connectionId: e.target.value })} className={inputCls}>
@@ -314,11 +415,3 @@ function Badge({ children, tone }: { children: React.ReactNode; tone?: "primary"
   );
 }
 
-function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <dt>{k}</dt>
-      <dd className={`text-foreground ${mono ? "font-mono" : "tabular-nums"}`}>{v}</dd>
-    </div>
-  );
-}
