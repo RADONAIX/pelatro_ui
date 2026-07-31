@@ -21,7 +21,7 @@ export const FR: Record<string, string> = {
   "Pipelines & Job Monitor": "Pipelines et suivi des tâches",
   "System Monitoring": "Supervision du système",
   MODULES: "MODULES",
-  "Revenue Assurance": "Assurance des revenus",
+  "Enterprise Assurance": "Assurance d'entreprise",
   soon: "bientôt",
   "Not available yet": "Pas encore disponible",
   "Expand sidebar": "Déployer le menu latéral",
@@ -195,8 +195,8 @@ export const FR: Record<string, string> = {
 
   // --- Reports --------------------------------------------------------------
   Reports: "Rapports",
-  "Revenue Assurance reports — pick a report from the sidebar to drill down and export.":
-    "Rapports d'assurance des revenus — choisissez un rapport dans le menu latéral pour explorer et exporter.",
+  "Enterprise Assurance reports — pick a report from the sidebar to drill down and export.":
+    "Rapports d'assurance d'entreprise — choisissez un rapport dans le menu latéral pour explorer et exporter.",
   "Select a report": "Sélectionnez un rapport",
   "Live · 30s": "En direct · 30s",
   "Auto-refreshes every 30 seconds": "Actualisation automatique toutes les 30 secondes",
@@ -554,10 +554,10 @@ export const FR: Record<string, string> = {
   // --- Page header info descriptions ----------------------------------------
   "View your account details and switch the application language.":
     "Consultez les détails de votre compte et changez la langue de l'application.",
-  "Live Revenue Assurance KPIs and the embedded Superset analytics dashboard.":
-    "Indicateurs d'assurance des revenus en direct et tableau de bord Superset intégré.",
-  "Browse certified Revenue Assurance reports and export their findings.":
-    "Parcourez les rapports certifiés d'assurance des revenus et exportez leurs résultats.",
+  "Live Enterprise Assurance KPIs and the embedded Superset analytics dashboard.":
+    "Indicateurs d'assurance d'entreprise en direct et tableau de bord Superset intégré.",
+  "Browse certified Enterprise Assurance reports and export their findings.":
+    "Parcourez les rapports certifiés d'assurance d'entreprise et exportez leurs résultats.",
   "Monitor processing pipelines, batch status and job health in real time.":
     "Surveillez les pipelines de traitement, l'état des lots et la santé des tâches en temps réel.",
   "System and application health metrics, powered by Prometheus and Grafana.":

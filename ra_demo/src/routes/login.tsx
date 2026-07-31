@@ -164,7 +164,7 @@ function LoginPage() {
             </div>
             <div className="min-w-0">
               <div className="font-semibold tracking-tight text-base leading-none text-foreground">RADONaix</div>
-              <div className="text-xs text-muted-foreground mt-1">{t("Revenue Assurance")}</div>
+              <div className="text-xs text-muted-foreground mt-1">{t("Enterprise Assurance")}</div>
             </div>
           </div>
 

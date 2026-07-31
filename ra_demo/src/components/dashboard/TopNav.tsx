@@ -19,7 +19,7 @@ export function TopNav() {
           </div>
           <div className="min-w-0 leading-tight">
             <p className="truncate text-base font-bold tracking-tight">RADONaix</p>
-            <p className="truncate text-[11px] text-muted-foreground">Revenue Assurance</p>
+            <p className="truncate text-[11px] text-muted-foreground">Enterprise Assurance</p>
           </div>
         </div>
 

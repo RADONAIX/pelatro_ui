@@ -138,7 +138,7 @@ function DashboardPage() {
       <PageHeader
         title={t("Dashboard & KPIs")}
         description=""
-        info={t("Live Revenue Assurance KPIs and the embedded Superset analytics dashboard.")}
+        info={t("Live Enterprise Assurance KPIs and the embedded Superset analytics dashboard.")}
       />
 
       <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">

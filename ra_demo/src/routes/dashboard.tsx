@@ -72,7 +72,7 @@ export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
       {
-        title: "Enterprise Dashboard — RADONaix Revenue Assurance",
+        title: "Enterprise Dashboard — RADONaix Enterprise Assurance",
       },
       {
         name: "description",

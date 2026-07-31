@@ -85,8 +85,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "RADONaix — Revenue Assurance" },
-      { name: "description", content: "RADONaix Revenue Assurance — pipeline monitoring, certified exports, and case management." },
+      { title: "RADONaix — Enterprise Assurance" },
+      { name: "description", content: "RADONaix Enterprise Assurance — pipeline monitoring, certified exports, and case management." },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
   }),

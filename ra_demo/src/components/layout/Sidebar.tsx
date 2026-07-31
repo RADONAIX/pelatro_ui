@@ -18,21 +18,26 @@ import { useAssuranceScope } from "@/lib/assuranceScope";
 import { useReportCatalog } from "@/lib/reportCatalogs";
 
 // ---------------------------------------------------------------------------
-// One continuous module list, from two sources:
-//   RatingSidebarNav      — Reports, Pipelines, Rule Management (+children),
-//                           Metadata Catalogue, Case Management, System
-//                           Monitoring.  (src/lib/rating/nav.ts)
-//   AssuranceSidebarNav   — the entity scope for the app currently selected in
-//                           the header.
+// Two groups, in the order the product is used:
 //
-// Plus five injected: Home, the cross-assurance Enterprise Dashboard and the
-// selected assurance's Assurance Dashboard above the list; Controls and Data
-// Sources in the middle of it. There is deliberately no "Dashboard & KPIs" and
-// no "Operations" group — see the notes in rating/nav.ts.
+//   PLATFORM              — every module that means the same thing regardless of
+//                           which assurance is selected: Home, the
+//                           cross-assurance Enterprise Dashboard, Case
+//                           Management, Pipelines & Job Monitor, System
+//                           Monitoring, Data Sources.
+//   ASSURANCE APPLICATION — the modules that ARE the selected assurance:
+//                           Dashboard, Controls, Reports, and under Rating the
+//                           two rating-service modules.
 //
-// Almost nothing moves when the Assurance Scope changes: it re-targets the
-// Assurance Dashboard, Reports and Controls, and hides the two rating-specific
-// modules. Every other module is present under every scope.
+// The split is the information architecture, not decoration: everything under
+// the second heading re-targets when the Assurance Scope changes in the header,
+// and renders disabled while nothing is selected. Nothing under the first one
+// moves. That is why the group a module belongs to is decided by whether its
+// path carries the app id, not by taste.
+//
+// AssuranceSidebarNav renders the entity-scope reference block below both.
+// There is deliberately no "Dashboard & KPIs" and no "Operations" group — see
+// the notes in rating/nav.ts.
 // ---------------------------------------------------------------------------
 
 /**
@@ -45,14 +50,19 @@ const RATING_ONLY_PATHS = new Set(["/rating/rules", "/rating/catalog"]);
 
 const RATING_SCOPE_ID = "rating";
 
-/**
- * Controls and Data Sources are injected immediately before Case Management —
- * the slot the removed Operations group used to occupy, so nothing moved.
- */
-const CASES_PATH = "/cases";
-
 /** The reports entry RATING_NAV declares; re-targeted per scope below. */
 const RATING_REPORTS_PATH = "/rating/reports";
+
+/**
+ * The RATING_NAV entries that belong to the platform group, in the order they
+ * are listed. Taken from RATING_NAV rather than redeclared so each keeps its
+ * icon and label; anything not named here is assurance-specific.
+ *
+ * Pipelines & Job Monitor is here because /pipelines is the same platform-wide
+ * batch monitor under every scope — it was previously tinted as
+ * assurance-specific on the strength of intent rather than behaviour.
+ */
+const PLATFORM_NAV_PATHS = ["/cases", "/pipelines", "/rating/monitoring"] as const;
 
 /**
  * The landing page, above every other module. Where login lands, and where the
@@ -117,13 +127,14 @@ export function Sidebar({
   );
 
   // The executive dashboard for the selected app. Scope-targeted like Controls,
-  // so it is injected here rather than declared in RATING_NAV — and it sits
-  // directly under Home, where choosing an assurance lands.
+  // so it is injected here rather than declared in RATING_NAV. Labelled just
+  // "Dashboard": it opens the assurance group, and the heading above it already
+  // says which assurance — "Assurance Dashboard" repeated the word.
   const assuranceDashboard: RatingNavItem = useMemo(
     () => ({
       // Same placeholder rule as Controls above — disabled, not a dead link.
       to: app ? `/assurance/${app.id}/dashboard` : "/assurance/dashboard",
-      label: "Assurance Dashboard",
+      label: "Dashboard",
       icon: LayoutDashboard,
       phase: 1,
     }),
@@ -142,49 +153,50 @@ export function Sidebar({
   // no assurance to scope them to, so only the static suite is listed.
   const reports = useReportCatalog(scope ?? "");
 
-  const navItems = useMemo(() => {
-    const base =
-      scope === RATING_SCOPE_ID
-        ? RATING_NAV
-        : RATING_NAV.filter((item) => !RATING_ONLY_PATHS.has(item.to));
-    return [
+  /** Common to all eight assurances. Nothing here moves with the scope. */
+  const platformItems = useMemo(
+    () => [
       OVERVIEW_ITEM,
-      // Cross-assurance first, then the selected assurance's own dashboard —
-      // widest scope to narrowest, matching how the rest of the list narrows.
       ENTERPRISE_DASHBOARD_ITEM,
+      ...PLATFORM_NAV_PATHS.map((path) => RATING_NAV.find((item) => item.to === path)).filter(
+        (item): item is RatingNavItem => !!item,
+      ),
+      DATA_SOURCES_ITEM,
+    ],
+    [],
+  );
+
+  /**
+   * The selected assurance's own modules, widest first: its dashboard, the
+   * controls that produce its findings, the reports they feed.
+   *
+   * Rule Management and the Metadata Catalogue are assurance-specific too, but
+   * exist only for Rating — they are backed by ra_rating_backend and have no
+   * equivalent elsewhere, so under any other scope the group is the first three.
+   */
+  const assuranceItems = useMemo(() => {
+    const reportsEntry = RATING_NAV.find((item) => item.to === RATING_REPORTS_PATH);
+    const ratingOnly =
+      scope === RATING_SCOPE_ID
+        ? RATING_NAV.filter((item) => RATING_ONLY_PATHS.has(item.to))
+        : [];
+    return [
       assuranceDashboard,
-      ...base.flatMap((item) => {
-        // Both land in the slot Operations held, immediately above the queue
-        // their findings go to.
-        if (item.to === CASES_PATH) return [controls, DATA_SOURCES_ITEM, item];
-        if (item.to === RATING_REPORTS_PATH) return [{ ...item, to: reports.path }];
-        return [item];
-      }),
+      controls,
+      ...(reportsEntry ? [{ ...reportsEntry, to: reports.path }] : []),
+      ...ratingOnly,
     ];
   }, [scope, controls, assuranceDashboard, reports.path]);
 
   /**
-   * Modules whose presence or target follows the selected assurance. Everything
-   * not in here is common: the same screen under all eight.
-   *
-   * Presence: Rule Management and Metadata Catalogue exist only under Rating.
-   * Target: the Assurance Dashboard, Reports and Controls all re-point at the
-   * selected app.
-   *
-   * Pipelines & Job Monitor is listed as assurance-specific because that is the
-   * intent, but note it does not re-target yet: /pipelines is the same
-   * platform-wide monitor under every scope.
+   * Every module in the assurance group is scope-specific by construction, so
+   * this is just its paths. It still matters to the renderer: a row in here that
+   * has no target yet renders "pick one" rather than "soon", because the screen
+   * exists and is only waiting on an assurance being chosen.
    */
   const scopeSpecificPaths = useMemo(
-    () =>
-      new Set([
-        assuranceDashboard.to,
-        reports.path,
-        "/pipelines",
-        controls.to,
-        ...RATING_ONLY_PATHS,
-      ]),
-    [assuranceDashboard.to, reports.path, controls.to],
+    () => new Set(assuranceItems.map((item) => item.to)),
+    [assuranceItems],
   );
 
   // RATING_AVAILABLE_PATHS is derived from RATING_NAV, so anything injected
@@ -221,7 +233,7 @@ export function Sidebar({
         {!collapsed && (
           <div className="min-w-0 transition-opacity">
             <div className="font-semibold tracking-tight text-base leading-none truncate">RADONaix</div>
-            <div className="text-xs text-sidebar-foreground/60 mt-1 truncate">{t("Revenue Assurance")}</div>
+            <div className="text-xs text-sidebar-foreground/60 mt-1 truncate">{t("Enterprise Assurance")}</div>
           </div>
         )}
         <Tooltip
@@ -244,41 +256,46 @@ export function Sidebar({
           catalog. */}
       <nav className={`flex-1 px-2 py-4 space-y-1 ${collapsed ? "overflow-visible" : "overflow-y-auto"}`}>
         {!collapsed && (
-          <div className="px-3 pb-2 text-[10px] tracking-widest text-sidebar-foreground/40 font-semibold">{t("MODULES")}</div>
+          <div className="px-3 pb-2 text-[10px] tracking-widest text-sidebar-foreground/40 font-semibold">
+            {t("PLATFORM")}
+          </div>
         )}
         <RatingSidebarNav
           collapsed={collapsed}
-          items={navItems}
+          items={platformItems}
           availablePaths={availablePaths}
           reports={reports}
-          scopeSpecificPaths={scopeSpecificPaths}
         />
+
+        {/* The heading names the assurance rather than repeating the word,
+            because that is the question this group answers: everything below is
+            THIS assurance. Collapsed, the rule alone separates the two. */}
+        <div className={collapsed ? "mt-3 pt-3 border-t border-sidebar-border" : "mt-4 pt-3 border-t border-sidebar-border"}>
+          {!collapsed && (
+            <div className="px-3 pb-2">
+              <div className="text-[10px] tracking-widest text-sidebar-foreground/40 font-semibold">
+                {t("ASSURANCE APPLICATION")}
+              </div>
+              <div className="mt-1 text-[13px] font-medium text-sidebar-foreground/80 truncate">
+                {app ? app.name : t("Select an assurance")}
+              </div>
+            </div>
+          )}
+          <RatingSidebarNav
+            collapsed={collapsed}
+            items={assuranceItems}
+            availablePaths={availablePaths}
+            reports={reports}
+            scopeSpecificPaths={scopeSpecificPaths}
+          />
+        </div>
+
         <AssuranceSidebarNav collapsed={collapsed} />
       </nav>
 
-      {/* Legend. The tint on its own says nothing to someone who hasn't been
-          told what it means — and nothing at all to a colour-blind reader — so
-          the two classes are named, with the current assurance spelled out. */}
-      {!collapsed && (
-        <div className="px-4 pt-3 pb-1 space-y-1.5 border-t border-sidebar-border">
-          <div className="flex items-center gap-2 text-[11px] text-sidebar-foreground/60">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary/70" />
-            {/* With nothing selected these rows are disabled, so the legend
-                says why rather than naming an assurance that isn't chosen. */}
-            <span className="truncate">
-              {app ? `${t("Specific to")} ${app.name}` : t("Select an assurance to enable")}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-[11px] text-sidebar-foreground/60">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sidebar-foreground/40" />
-            <span className="truncate">{t("Common to all assurances")}</span>
-          </div>
-        </div>
-      )}
-
-      <div className={`px-4 py-4 border-t border-sidebar-border text-[11px] text-sidebar-foreground/50 ${collapsed ? "text-center" : ""}`}>
-        {collapsed ? "v2.4" : "v2.4.1 · Production"}
-      </div>
+      {/* No tint legend any more: the two headings say which modules follow the
+          assurance and which don't, in words, which is what the legend existed
+          to explain. */}
     </aside>
   );
 }

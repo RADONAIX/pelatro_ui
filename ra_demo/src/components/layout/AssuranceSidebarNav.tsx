@@ -27,23 +27,19 @@ export function AssuranceSidebarNav({ collapsed }: { collapsed: boolean }) {
       <div className="px-3 pb-2 text-[10px] tracking-widest text-sidebar-foreground/40 font-semibold">
         {t("ENTITY SCOPE")}
       </div>
-      <ul className="space-y-1.5 px-3 pb-2">
+      {/* Chips, not a list: this is a reference set of five to seven short
+          names, and one row each cost more vertical space than the navigation
+          above it. Wrapping keeps every entity visible without scrolling. */}
+      <ul className="flex flex-wrap gap-1 px-3 pb-2">
         {app.entities.map((entity) => (
           <li
             key={entity}
-            className="flex items-center gap-2 text-[13px] text-sidebar-foreground/60"
+            className="rounded-full border border-sidebar-border bg-sidebar-accent/40 px-2 py-0.5 text-[11px] leading-4 text-sidebar-foreground/70"
           >
-            <span className="size-1 shrink-0 rounded-full bg-primary/60" />
-            <span className="truncate">{entity}</span>
+            {entity}
           </li>
         ))}
       </ul>
-      <div className="px-3 pt-2 pb-1">
-        <div className="text-[10px] uppercase tracking-widest text-sidebar-foreground/40">
-          {t("Control set")}
-        </div>
-        <div className="font-mono text-xs text-sidebar-foreground/70">{app.controlRange}</div>
-      </div>
     </div>
   );
 }

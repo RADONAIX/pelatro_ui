@@ -266,8 +266,8 @@ function PlatformReportsPage() {
     <AppShell>
       <PageHeader
         title={t("Reports")}
-        description={t("Revenue Assurance reports — pick a report from the sidebar to drill down and export.")}
-        info={t("Browse certified Revenue Assurance reports and export their findings.")}
+        description={t("Enterprise Assurance reports — pick a report from the sidebar to drill down and export.")}
+        info={t("Browse certified Enterprise Assurance reports and export their findings.")}
       />
       <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
