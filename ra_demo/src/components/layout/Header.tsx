@@ -64,12 +64,20 @@ export function Header({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
         <div className="relative" ref={scopeRef}>
           <button
             onClick={() => { setScopeOpen((o) => !o); setSettingsOpen(false); setProfileOpen(false); }}
-            className="hidden md:flex items-center gap-2 h-10 pl-3 pr-3 rounded-full border border-primary/30 bg-primary/5 hover:bg-primary/10 transition"
+            /* Dashed while nothing is chosen, so an unselected scope reads as
+               an invitation rather than a value that failed to load. */
+            className={`hidden md:flex items-center gap-2 h-10 pl-3 pr-3 rounded-full border transition ${
+              scopeApp
+                ? "border-primary/30 bg-primary/5 hover:bg-primary/10"
+                : "border-dashed border-primary/50 bg-transparent hover:bg-primary/5"
+            }`}
           >
             <Layers className="h-4 w-4 text-primary" />
             <div className="text-left leading-tight">
               <div className="text-[10px] tracking-widest text-primary/80 font-semibold">{t("ASSURANCE SCOPE")}</div>
-              <div className="text-sm font-semibold text-foreground">{scopeApp.name}</div>
+              <div className={`text-sm font-semibold ${scopeApp ? "text-foreground" : "text-muted-foreground"}`}>
+                {scopeApp ? scopeApp.name : t("Select an assurance")}
+              </div>
             </div>
             <ChevronDown className="h-4 w-4 text-primary ml-1" />
           </button>

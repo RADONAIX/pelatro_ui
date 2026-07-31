@@ -18,6 +18,9 @@ export function AssuranceSidebarNav({ collapsed }: { collapsed: boolean }) {
   // Reference text, not navigation — there is nothing useful to show at icon
   // width, so the collapsed rail omits it entirely.
   if (collapsed) return null;
+  // No assurance chosen yet: there is no entity scope to describe, and an empty
+  // heading would read as "this assurance has no entities".
+  if (!app) return null;
 
   return (
     <div className="pt-3 mt-3 border-t border-sidebar-border">

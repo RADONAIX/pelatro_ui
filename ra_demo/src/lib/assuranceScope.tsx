@@ -63,19 +63,27 @@ export const ASSURANCE_WORKSPACE_GROUPS: AssuranceWorkspaceGroup[] = WORKSPACES.
 
 export type AssuranceScope = string;
 
-export const DEFAULT_SCOPE: AssuranceScope = ASSURANCE_WORKSPACE_GROUPS[0].apps[0].id;
+/**
+ * There is deliberately no default assurance.
+ *
+ * Picking the first app of the first workspace meant a session silently opened
+ * on whichever assurance happened to sort first — the user saw its dashboard,
+ * controls and reports without ever having chosen it. A session now starts with
+ * nothing selected and Home is where the choice is made.
+ */
 
-// Same key as before. Values used to be display names ("Mediation Assurance");
-// they are now app ids. isKnownScope rejects the old shape, so a stale entry
-// falls back to the default instead of selecting nothing — no migration needed.
+// sessionStorage, not localStorage: a refresh mid-session must not lose the
+// assurance you are working in, but a new sign-in has to start unselected. The
+// auth token lives in sessionStorage for the same reason, so the two expire
+// together.
 const STORAGE_KEY = "radonaix_scope";
 
 interface ScopeCtx {
-  /** The selected app's id, e.g. "usage". */
-  scope: AssuranceScope;
+  /** The selected app's id, or null when the user has not chosen one yet. */
+  scope: AssuranceScope | null;
   setScope: (scope: AssuranceScope) => void;
-  /** The selected app's metadata — never null, the scope is always a valid id. */
-  app: AppMetadata;
+  /** The selected app's metadata, or null while nothing is selected. */
+  app: AppMetadata | null;
 }
 
 const Ctx = createContext<ScopeCtx | null>(null);
@@ -85,14 +93,15 @@ function isKnownScope(value: string | null): value is AssuranceScope {
 }
 
 export function AssuranceScopeProvider({ children }: { children: ReactNode }) {
-  // Always start from the default so the server-rendered markup matches the
-  // first client render (no hydration mismatch); the persisted choice is
-  // applied in an effect right after mount, exactly like dark mode and i18n.
-  const [scope, setScopeState] = useState<AssuranceScope>(DEFAULT_SCOPE);
+  // Always start unselected so the server-rendered markup matches the first
+  // client render (no hydration mismatch); a choice made earlier in this
+  // session is applied in an effect right after mount, exactly like dark mode
+  // and i18n.
+  const [scope, setScopeState] = useState<AssuranceScope | null>(null);
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = sessionStorage.getItem(STORAGE_KEY);
       if (isKnownScope(saved)) setScopeState(saved);
     } catch {
       /* ignore unavailable storage */
@@ -103,14 +112,14 @@ export function AssuranceScopeProvider({ children }: { children: ReactNode }) {
     if (!isKnownScope(next)) return;
     setScopeState(next);
     try {
-      localStorage.setItem(STORAGE_KEY, next);
+      sessionStorage.setItem(STORAGE_KEY, next);
     } catch {
       /* ignore */
     }
   }, []);
 
   const value = useMemo(
-    () => ({ scope, setScope, app: getApp(scope) ?? getApp(DEFAULT_SCOPE)! }),
+    () => ({ scope, setScope, app: scope ? (getApp(scope) ?? null) : null }),
     [scope, setScope],
   );
 
@@ -120,13 +129,7 @@ export function AssuranceScopeProvider({ children }: { children: ReactNode }) {
 export function useAssuranceScope(): ScopeCtx {
   const ctx = useContext(Ctx);
   // Falling back rather than throwing keeps any component that renders outside
-  // the provider (tests, storybook-style previews) on the default scope, which
-  // is the pre-existing behaviour.
-  return (
-    ctx ?? {
-      scope: DEFAULT_SCOPE,
-      setScope: () => {},
-      app: getApp(DEFAULT_SCOPE)!,
-    }
-  );
+  // the provider (tests, storybook-style previews) working — unselected, which
+  // is now the same state a fresh session starts in.
+  return ctx ?? { scope: null, setScope: () => {}, app: null };
 }

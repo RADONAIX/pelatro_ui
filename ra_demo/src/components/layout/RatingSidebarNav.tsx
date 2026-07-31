@@ -38,15 +38,22 @@ function SoonRow({
   label,
   icon: Icon,
   nested,
+  // Why the row is inert. Defaults to "not built yet"; the Sidebar passes a
+  // different reason for rows that are merely waiting on an assurance choice,
+  // where "soon" would be a lie — the screen exists, it just has no target.
+  tag,
+  title,
 }: {
   label: string;
   icon: RatingNavChild["icon"];
   nested?: boolean;
+  tag?: string;
+  title?: string;
 }) {
   const t = useT();
   return (
     <div
-      title={t("Not available yet")}
+      title={title ? t(title) : t("Not available yet")}
       aria-disabled="true"
       className={
         nested
@@ -56,7 +63,7 @@ function SoonRow({
     >
       <Icon className={nested ? "h-3.5 w-3.5 shrink-0" : "h-4 w-4 shrink-0"} />
       <span className="flex-1 truncate">{t(label)}</span>
-      <span className="text-[9px] uppercase tracking-wide">{t("soon")}</span>
+      <span className="text-[9px] uppercase tracking-wide">{t(tag ?? "soon")}</span>
     </div>
   );
 }
@@ -87,6 +94,7 @@ export function RatingSidebarNav({
   items = RATING_NAV,
   availablePaths = RATING_AVAILABLE_PATHS,
   reports = DEFAULT_REPORT_CATALOG,
+  scopeSpecificPaths,
 }: {
   collapsed: boolean;
   /**
@@ -110,8 +118,20 @@ export function RatingSidebarNav({
    * the catalog changes — the accordion itself is identical.
    */
   reports?: ReportCatalog;
+  /**
+   * Paths whose presence or target follows the selected assurance. Their icons
+   * carry the primary tint so the two classes of module are distinguishable at
+   * a glance; everything else is common to all eight assurances.
+   *
+   * Colour alone would not be readable, so the Sidebar renders a legend naming
+   * the current assurance underneath the list.
+   */
+  scopeSpecificPaths?: ReadonlySet<string>;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isScoped = (to: string) => !!scopeSpecificPaths?.has(to);
+  // Inactive scoped rows only — an active row is already full primary.
+  const scopedTint = (to: string) => (isScoped(to) ? "text-primary/70" : "");
   const t = useT();
 
   // "/rating" must match exactly — otherwise the overview stays highlighted on
@@ -214,7 +234,7 @@ export function RatingSidebarNav({
                   }`}
                 >
                   <FileBarChart2
-                    className={`h-4 w-4 shrink-0 ${onReports ? "text-primary" : ""}`}
+                    className={`h-4 w-4 shrink-0 ${onReports ? "text-primary" : scopedTint(item.to)}`}
                   />
                 </Link>
                 <div className="invisible -translate-x-1 opacity-0 group-hover:visible group-hover:translate-x-0 group-hover:opacity-100 transition duration-150 ease-out absolute left-full top-0 pl-2.5 z-50">
@@ -249,7 +269,7 @@ export function RatingSidebarNav({
               >
                 <span className="flex items-center gap-3 min-w-0">
                   <FileBarChart2
-                    className={`h-4 w-4 shrink-0 ${onReports ? "text-primary" : ""}`}
+                    className={`h-4 w-4 shrink-0 ${onReports ? "text-primary" : scopedTint(item.to)}`}
                   />
                   <span className="truncate">{t(item.label)}</span>
                 </span>
@@ -280,7 +300,14 @@ export function RatingSidebarNav({
               <Icon className="h-4 w-4 shrink-0" />
             </div>
           ) : (
-            <SoonRow key={item.to} label={item.label} icon={Icon} />
+            <SoonRow
+              key={item.to}
+              label={item.label}
+              icon={Icon}
+              {...(isScoped(item.to)
+                ? { tag: "pick one", title: "Select an assurance to enable this module" }
+                : {})}
+            />
           );
         }
 
@@ -302,7 +329,7 @@ export function RatingSidebarNav({
               >
                 <span className="flex items-center gap-3 min-w-0">
                   <Icon
-                    className={`h-4 w-4 shrink-0 ${active ? "text-primary" : ""}`}
+                    className={`h-4 w-4 shrink-0 ${active ? "text-primary" : scopedTint(item.to)}`}
                   />
                   <span className="truncate">{t(item.label)}</span>
                 </span>
@@ -369,7 +396,7 @@ export function RatingSidebarNav({
                 }`}
               >
                 <Icon
-                  className={`h-4 w-4 shrink-0 ${active ? "text-primary" : ""}`}
+                  className={`h-4 w-4 shrink-0 ${active ? "text-primary" : scopedTint(item.to)}`}
                 />
               </Link>
 
@@ -436,7 +463,7 @@ export function RatingSidebarNav({
             }`}
           >
             <Icon
-              className={`h-4 w-4 shrink-0 ${active ? "text-primary" : ""}`}
+              className={`h-4 w-4 shrink-0 ${active ? "text-primary" : scopedTint(item.to)}`}
             />
             {!collapsed && <span className="truncate">{t(item.label)}</span>}
             {collapsed && (

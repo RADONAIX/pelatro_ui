@@ -75,6 +75,18 @@ const ENTERPRISE_DASHBOARD_ITEM: RatingNavItem = {
   phase: 1,
 };
 
+/**
+ * The feed register. Common to every assurance — the same sources back all of
+ * them — so it sits at the top level rather than inside the assurance-scoped
+ * Operations group.
+ */
+const DATA_SOURCES_ITEM: RatingNavItem = {
+  to: "/data-sources",
+  label: "Data Sources",
+  icon: Database,
+  phase: 1,
+};
+
 export function Sidebar({
   collapsed,
   onToggle,
@@ -98,18 +110,24 @@ export function Sidebar({
       phase: 1,
       children: [
         {
-          to: `/assurance/${app.id}/controls`,
+          // Falls back to a placeholder path while nothing is selected. It is
+          // never linkable in that state — availablePaths below omits it, so
+          // the row renders disabled rather than pointing at /assurance/null.
+          to: app ? `/assurance/${app.id}/controls` : "/assurance/controls",
           label: "Controls",
           icon: ShieldCheck,
           phase: 1,
         },
-        { to: "/data-sources", label: "Data Sources", icon: Database, phase: 1 },
-        // /cases is not listed here: it is the top-level Case Management module
-        // in RATING_NAV. Two entries pointing at one route would both highlight
-        // on it and make the queue look like two different screens.
+        // Data Sources has moved out to a top-level module: the feed register is
+        // the same one under every assurance, so nesting it under an
+        // assurance-scoped group implied it changed with the scope.
+        //
+        // /cases is not listed here either: it is the top-level Case Management
+        // module in RATING_NAV. Two entries pointing at one route would both
+        // highlight on it and make the queue look like two different screens.
       ],
     }),
-    [app.id],
+    [app],
   );
 
   // The executive dashboard for the selected app. Scope-targeted like Controls,
@@ -117,12 +135,13 @@ export function Sidebar({
   // directly under Home, where choosing an assurance lands.
   const assuranceDashboard: RatingNavItem = useMemo(
     () => ({
-      to: `/assurance/${app.id}/dashboard`,
+      // Same placeholder rule as Controls above — disabled, not a dead link.
+      to: app ? `/assurance/${app.id}/dashboard` : "/assurance/dashboard",
       label: "Assurance Dashboard",
       icon: LayoutDashboard,
       phase: 1,
     }),
-    [app.id],
+    [app],
   );
 
   // Reports are two different suites. The rating catalog (Daily Reconciliation
@@ -130,7 +149,9 @@ export function Sidebar({
   // rating-service specific and says nothing about Usage, Billing or Partner;
   // those scopes get the platform catalog (/reports) instead. The nav entry
   // keeps its label and position either way — only its target moves.
-  const reports = catalogForScope(scope);
+  // No assurance selected yet resolves to the platform suite, which is what
+  // every non-rating scope gets anyway.
+  const reports = catalogForScope(scope ?? "");
 
   const navItems = useMemo(() => {
     const base =
@@ -143,27 +164,61 @@ export function Sidebar({
       // widest scope to narrowest, matching how the rest of the list narrows.
       ENTERPRISE_DASHBOARD_ITEM,
       assuranceDashboard,
-      ...base.map((item) => {
-        if (item.to === OPERATIONS_PATH) return operations;
-        if (item.to === RATING_REPORTS_PATH) return { ...item, to: reports.path };
-        return item;
+      ...base.flatMap((item) => {
+        if (item.to === OPERATIONS_PATH) {
+          // Data Sources follows Operations, where it used to live as a child —
+          // same position in the list, one level up.
+          return [operations, DATA_SOURCES_ITEM];
+        }
+        if (item.to === RATING_REPORTS_PATH) return [{ ...item, to: reports.path }];
+        return [item];
       }),
     ];
   }, [scope, operations, assuranceDashboard, reports.path]);
 
+  /**
+   * Modules whose presence or target follows the selected assurance. Everything
+   * not in here is common: the same screen under all eight.
+   *
+   * Presence: Rule Management and Metadata Catalogue exist only under Rating.
+   * Target: the Assurance Dashboard, Reports and Controls all re-point at the
+   * selected app — and Operations is here because Controls is now its only child.
+   *
+   * Pipelines & Job Monitor is listed as assurance-specific because that is the
+   * intent, but note it does not re-target yet: /pipelines is the same
+   * platform-wide monitor under every scope.
+   */
+  const scopeSpecificPaths = useMemo(
+    () =>
+      new Set([
+        assuranceDashboard.to,
+        reports.path,
+        "/pipelines",
+        OPERATIONS_PATH,
+        ...(operations.children ?? []).map((c) => c.to),
+        ...RATING_ONLY_PATHS,
+      ]),
+    [assuranceDashboard.to, reports.path, operations],
+  );
+
   // RATING_AVAILABLE_PATHS is derived from RATING_NAV, so anything injected
   // here is absent from it and would render as a disabled "soon" row.
+  //
+  // The app-scoped entries are added only once an assurance is chosen: with
+  // none selected their paths are placeholders pointing at no route, so leaving
+  // them out is what makes those rows render disabled instead of dead links.
   const availablePaths = useMemo(
     () =>
       new Set([
         ...RATING_AVAILABLE_PATHS,
         OVERVIEW_ITEM.to,
         ENTERPRISE_DASHBOARD_ITEM.to,
-        assuranceDashboard.to,
+        DATA_SOURCES_ITEM.to,
         reports.path,
-        ...(operations.children ?? []).map((c) => c.to),
+        ...(app ? [assuranceDashboard.to] : []),
+        ...(app ? (operations.children ?? []).map((c) => c.to) : []),
       ]),
-    [operations, assuranceDashboard, reports.path],
+    [app, operations, assuranceDashboard, reports.path],
   );
 
   return (
@@ -206,9 +261,35 @@ export function Sidebar({
         {!collapsed && (
           <div className="px-3 pb-2 text-[10px] tracking-widest text-sidebar-foreground/40 font-semibold">{t("MODULES")}</div>
         )}
-        <RatingSidebarNav collapsed={collapsed} items={navItems} availablePaths={availablePaths} reports={reports} />
+        <RatingSidebarNav
+          collapsed={collapsed}
+          items={navItems}
+          availablePaths={availablePaths}
+          reports={reports}
+          scopeSpecificPaths={scopeSpecificPaths}
+        />
         <AssuranceSidebarNav collapsed={collapsed} />
       </nav>
+
+      {/* Legend. The tint on its own says nothing to someone who hasn't been
+          told what it means — and nothing at all to a colour-blind reader — so
+          the two classes are named, with the current assurance spelled out. */}
+      {!collapsed && (
+        <div className="px-4 pt-3 pb-1 space-y-1.5 border-t border-sidebar-border">
+          <div className="flex items-center gap-2 text-[11px] text-sidebar-foreground/60">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary/70" />
+            {/* With nothing selected these rows are disabled, so the legend
+                says why rather than naming an assurance that isn't chosen. */}
+            <span className="truncate">
+              {app ? `${t("Specific to")} ${app.name}` : t("Select an assurance to enable")}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-sidebar-foreground/60">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sidebar-foreground/40" />
+            <span className="truncate">{t("Common to all assurances")}</span>
+          </div>
+        </div>
+      )}
 
       <div className={`px-4 py-4 border-t border-sidebar-border text-[11px] text-sidebar-foreground/50 ${collapsed ? "text-center" : ""}`}>
         {collapsed ? "v2.4" : "v2.4.1 · Production"}
