@@ -1,0 +1,52 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 1547 >>
+stream
+BT
+/F1 26 Tf 1 0 0 1 60 780 Tm (RADONaix Telecom) Tj
+/F1 14 Tf 1 0 0 1 60 746 Tm (Postpaid Bill Statement  -  July 2026) Tj
+/F1 12 Tf 1 0 0 1 60 714 Tm (Customer:        Kwame Mensah) Tj
+/F1 12 Tf 1 0 0 1 60 694 Tm (MSISDN:          233241567890) Tj
+/F1 12 Tf 1 0 0 1 60 674 Tm (Account:         ACC-4471902) Tj
+/F1 12 Tf 1 0 0 1 60 654 Tm (Plan:            Postpaid Flex 150  \(150 included voice minutes\)) Tj
+/F1 12 Tf 1 0 0 1 60 634 Tm (Bill cycle:      01 Jul 2026 - 31 Jul 2026) Tj
+/F1 12 Tf 1 0 0 1 60 614 Tm (Issued:          01 Aug 2026) Tj
+/F1 13 Tf 1 0 0 1 60 584 Tm (Charges) Tj
+/F1 11 Tf 1 0 0 1 60 563 Tm (-------------------------------------------------------------) Tj
+/F1 11 Tf 1 0 0 1 60 544 Tm (Monthly rental                                    GHS   72.50) Tj
+/F1 11 Tf 1 0 0 1 60 525 Tm (Voice charges        \(312 mins @ 0.75/min\)        GHS  234.50) Tj
+/F1 11 Tf 1 0 0 1 60 506 Tm (Data charges         \(18.2 GB\)                    GHS  121.50) Tj
+/F1 11 Tf 1 0 0 1 60 487 Tm (Included minutes applied                                0 mins) Tj
+/F1 11 Tf 1 0 0 1 60 468 Tm (-------------------------------------------------------------) Tj
+/F1 13 Tf 1 0 0 1 60 449 Tm (Total due                                         GHS  428.50) Tj
+/F1 10 Tf 1 0 0 1 60 418 Tm (Queries: 100 from your handset  |  care@radonaix.example) Tj
+/F1 10 Tf 1 0 0 1 60 400 Tm (This statement is a demo artefact generated for the RADONaix case) Tj
+/F1 10 Tf 1 0 0 1 60 382 Tm (management walkthrough. It does not represent a real account.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001840 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1910
+%%EOF
