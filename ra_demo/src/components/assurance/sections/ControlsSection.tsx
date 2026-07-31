@@ -136,7 +136,7 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
                           variant="ghost"
                           size="sm"
                           className="h-6 px-2 text-xs"
-                          title="Open a case in Assurance Cases using this rule's routing"
+                          title="Open a case in Case Management using this rule's routing"
                           onClick={() => raiseCase(r)}
                         >
                           Raise case

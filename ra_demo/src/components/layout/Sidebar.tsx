@@ -1,5 +1,4 @@
 import {
-  Briefcase,
   ChevronLeft,
   ChevronRight,
   Database,
@@ -104,9 +103,9 @@ export function Sidebar({
           phase: 1,
         },
         { to: "/data-sources", label: "Data Sources", icon: Database, phase: 1 },
-        // Where rules raise cases. Without an entry here the Raise case action
-        // on a control would open a case on a screen nobody can navigate to.
-        { to: "/cases", label: "Assurance Cases", icon: Briefcase, phase: 1 },
+        // /cases is not listed here: it is the top-level Case Management module
+        // in RATING_NAV. Two entries pointing at one route would both highlight
+        // on it and make the queue look like two different screens.
       ],
     }),
     [app.id],

@@ -1,5 +1,6 @@
 import {
   Activity,
+  Briefcase,
   LayoutDashboard,
   Wallet,
   BookOpenCheck,
@@ -76,10 +77,16 @@ export const RATING_NAV: RatingNavItem[] = [
     icon: Activity,
     phase: 1,
   },
+  // The platform-wide case queue (/cases), not the rating exception list
+  // (/rating/exceptions). Case Management is where every assurance's rules land
+  // their findings — the same screen an analyst raises a case on by hand — so it
+  // is meaningful under all eight scopes, which the rating-only exception list
+  // is not. /rating/exceptions is unchanged and still reached by drilling down
+  // from the rating dashboard, runs and pipeline screens.
   {
-    to: "/rating/exceptions",
+    to: "/cases",
     label: "Case Management",
-    icon: AlertTriangle,
+    icon: Briefcase,
     phase: 1,
   },
   {

@@ -612,7 +612,7 @@ function CaseRoutingEditor({
       </div>
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Cases open in Assurance Cases under Operations. No evaluator runs this rule yet — raise one
+        Cases open in Case Management. No evaluator runs this rule yet — raise one
         from the Controls table to see it end to end.
       </p>
     </div>
