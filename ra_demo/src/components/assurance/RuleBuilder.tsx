@@ -21,7 +21,7 @@ import {
 } from "@/lib/assurance/metadata-api";
 // Case priority vocabulary, aliased — this file already has its own SEVERITIES
 // for the rule's own severity, which is a narrower set than a case's.
-import { SEVERITIES as CASE_SEVERITIES } from "@/lib/cases";
+import { FALLBACK_CATALOG, SEVERITIES as CASE_SEVERITIES, fetchCatalog } from "@/lib/cases";
 import {
   Dialog,
   DialogContent,
@@ -84,7 +84,19 @@ export function RuleBuilder({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<RuleCategory>(scoped[0] ?? RULE_CATEGORIES[0]);
-  const [entity, setEntity] = useState(app.entities[0]);
+  const [entity, setEntity] = useState("");
+  /**
+   * Entity scope IS the module a raised case is filed under, so the options
+   * have to be the modules the case service knows for THIS assurance.
+   *
+   * platform-metadata's `entities` are a different vocabulary written for the
+   * Controls table, and most of them are not modules: Charging offered "OCS
+   * Account", "Reservation" and "Top-up", none of which the catalog recognises,
+   * so a case raised from such a rule arrived with no module at all. Seeded
+   * with the app's entities so the control is never empty, then replaced by the
+   * catalog's list — per assurance — as soon as it answers.
+   */
+  const [modules, setModules] = useState<string[]>(app.entities);
   const [severity, setSeverity] = useState<CustomRule["severity"]>("high");
   const [frequency, setFrequency] = useState<CustomRule["frequency"]>("Daily");
   const [state, setState] = useState<CustomRule["state"]>("Draft");
@@ -95,6 +107,42 @@ export function RuleBuilder({
   const [routing, setRouting] = useState<CaseRouting>(() => emptyCaseRouting("high"));
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Falls back to the bundled catalog when the case service is unreachable, so
+  // the options stay correct offline rather than reverting to the entities.
+  useEffect(() => {
+    let cancelled = false;
+    fetchCatalog()
+      .catch(() => FALLBACK_CATALOG)
+      .then((catalog) => {
+        if (cancelled) return;
+        const known = catalog.assurances.find((a) => a.name === app.name)?.modules;
+        if (known?.length) setModules(known);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [app.name]);
+
+  /**
+   * A rule authored before this list was catalog-driven can carry an entity the
+   * catalog no longer offers. Keep it as an option while editing: silently
+   * re-pointing someone's rule at a different module on open would be worse
+   * than showing the value they chose.
+   */
+  const entityOptions = useMemo(
+    () =>
+      rule?.entity && !modules.includes(rule.entity) ? [rule.entity, ...modules] : modules,
+    [modules, rule?.entity],
+  );
+
+  // The catalog answers after the first render, so the seeded value can be one
+  // this assurance doesn't offer. Correct it to the first real option — but
+  // never overwrite a choice that IS valid, including the edited rule's own.
+  useEffect(() => {
+    if (!entityOptions.length) return;
+    setEntity((current) => (current && entityOptions.includes(current) ? current : entityOptions[0]));
+  }, [entityOptions]);
 
   const fields = CATEGORY_PARAMS[category];
   const isComparison = COMPARISON_CATEGORIES.has(category);
@@ -121,7 +169,9 @@ export function RuleBuilder({
   const fileLogValid =
     !isFileLogRule || (!!params.table && !!params.sequenceField);
 
-  const valid = name.trim().length > 1 && comparisonValid && fileLogValid;
+  // The server requires an entity, so guard the brief window before the catalog
+  // answers rather than letting the save come back 422.
+  const valid = name.trim().length > 1 && !!entity && comparisonValid && fileLogValid;
 
   // Seeds every field from the rule under edit, or back to defaults when
   // authoring. Runs on close as well as on open, so a cancelled edit leaves no
@@ -130,7 +180,9 @@ export function RuleBuilder({
     setName(rule?.name ?? "");
     setDescription(rule?.description ?? "");
     setCategory(rule?.category ?? scoped[0] ?? RULE_CATEGORIES[0]);
-    setEntity(rule?.entity ?? app.entities[0]);
+    // "" rather than a guess: the effect above fills in the first module the
+    // catalog offers for this assurance.
+    setEntity(rule?.entity ?? "");
     setSeverity(rule?.severity ?? "high");
     setFrequency(rule?.frequency ?? "Daily");
     setState(rule?.state ?? "Draft");
@@ -141,7 +193,7 @@ export function RuleBuilder({
     setComparison(rule?.comparison ?? emptyComparison());
     setRouting(rule?.caseRouting ?? emptyCaseRouting(rule?.severity ?? "high"));
     setSaveError(null);
-  }, [rule, scoped, app.entities]);
+  }, [rule, scoped]);
 
   // Re-seed when the dialog is handed a different rule (each table row renders
   // its own builder, but a list refresh replaces the object identity).
@@ -277,10 +329,10 @@ export function RuleBuilder({
               <Label>Entity scope</Label>
               <Select value={entity} onValueChange={setEntity}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Loading modules…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {app.entities.map((e) => (
+                  {entityOptions.map((e) => (
                     <SelectItem key={e} value={e}>
                       {e}
                     </SelectItem>
