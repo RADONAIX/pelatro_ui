@@ -342,7 +342,6 @@ async def write(
         rule = await db.get(CanonicalRule, rule_id)
         if rule is None:  # pragma: no cover - the index is loaded from this table
             raise ConflictError(f"Rule '{rule_key}' vanished mid-write.")
-        was_retired = rule.status == "RETIRED"
         # A rename is an update to the same logical rule, never a new one.
         rule.rule_name = draft.rule_name
         rule.description = draft.description
@@ -351,11 +350,10 @@ async def write(
         rule.updated_by = actor_id
         if draft.owner:
             rule.owner = draft.owner
-        # RETIRED is terminal for the old version, not a permanent ban on the
-        # stable rule key. Re-importing that key creates a new current version;
-        # only that explicit reintroduction resets the logical rule's status.
-        if was_retired:
-            rule.status = status
+        # The logical row describes its current version. The previously-live
+        # version remains ACTIVE in its immutable version row until this
+        # replacement is activated, so this does not interrupt rating traffic.
+        rule.status = status
         next_version = await _next_version_number(db, rule.rule_id)
 
     # --- Version ------------------------------------------------------------

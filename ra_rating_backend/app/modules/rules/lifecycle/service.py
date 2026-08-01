@@ -729,12 +729,39 @@ async def activate(
 
     for rule in ready:
         previous = rule.status
-        rule.status = RuleStatus.ACTIVE
         version = (
             await db.get(CanonicalRuleVersion, rule.current_version_id)
             if rule.current_version_id
             else None
         )
+
+        # Keep the previous version live while its replacement is being edited,
+        # but never leave both live after the replacement is activated.
+        previous_live_versions = list(
+            (
+                await db.execute(
+                    select(CanonicalRuleVersion).where(
+                        CanonicalRuleVersion.rule_id == rule.rule_id,
+                        CanonicalRuleVersion.rule_version_id
+                        != rule.current_version_id,
+                        CanonicalRuleVersion.status.in_(
+                            (RuleStatus.ACTIVE, RuleStatus.PUBLISHED)
+                        ),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for previous_version in previous_live_versions:
+            previous_version.status = RuleStatus.SUPERSEDED
+            mirror_hooks.record_rule_version(db, previous_version.rule_version_id)
+        if previous_live_versions:
+            # Satisfy the database's one-live-version exclusion constraint
+            # before promoting the replacement.
+            await db.flush()
+
+        rule.status = RuleStatus.ACTIVE
         if version is not None:
             version.status = RuleStatus.ACTIVE
         db.add(CanonicalRuleAudit(

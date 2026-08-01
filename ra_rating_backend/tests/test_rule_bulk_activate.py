@@ -334,6 +334,54 @@ async def test_activating_a_new_import_keeps_the_current_live_estate(db_session)
     assert first[0].status == RuleStatus.ACTIVE
 
 
+async def test_activating_a_new_version_supersedes_only_its_previous_version(
+    db_session,
+):
+    """Editing keeps v1 live until v2 is activated, then exactly v2 is live."""
+    await _ready(db_session)
+    first, first_set = await _approved(
+        db_session, _csv(_row("VERSION_SWAP", rate="0.01"))
+    )
+    await svc.activate(
+        db_session,
+        first,
+        selector={"rule_set_id": first_set.rule_set_id},
+        rule_set_id=first_set.rule_set_id,
+        actor_id=CHECKER.id,
+        actor_name=CHECKER.name,
+    )
+    await db_session.flush()
+
+    rule = first[0]
+    first_version_id = rule.current_version_id
+    first_version = await db_session.get(CanonicalRuleVersion, first_version_id)
+    assert first_version.status == RuleStatus.ACTIVE
+
+    second, second_set = await _approved(
+        db_session, _csv(_row("VERSION_SWAP", rate="0.02"))
+    )
+    assert second[0].rule_id == rule.rule_id
+    second_version_id = second[0].current_version_id
+    assert second_version_id != first_version_id
+    await db_session.refresh(first_version)
+    assert first_version.status == RuleStatus.ACTIVE
+
+    await svc.activate(
+        db_session,
+        second,
+        selector={"rule_set_id": second_set.rule_set_id},
+        rule_set_id=second_set.rule_set_id,
+        actor_id=CHECKER.id,
+        actor_name=CHECKER.name,
+    )
+    await db_session.flush()
+
+    await db_session.refresh(first_version)
+    second_version = await db_session.get(CanonicalRuleVersion, second_version_id)
+    assert first_version.status == RuleStatus.SUPERSEDED
+    assert second_version.status == RuleStatus.ACTIVE
+
+
 # --- B4: asynchronous runs --------------------------------------------------
 
 
