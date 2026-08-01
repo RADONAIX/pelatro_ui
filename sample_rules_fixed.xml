@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Corrected version of the 14-rule import file.
+
+  What changed vs the original (and why each row was being rejected):
+  - UnitSeconds/UnitCount/UnitKB were not recognised, so every SET_RATE lacked
+    its required Unit. Replaced with <Unit> + <RatePerUnits>, the columns the
+    importer maps ("0.50 per 60 SECOND").
+  - PulseRounding / VolumeRounding / MatchStrategy / MaximumUnits /
+    BundleRemaining(Operator) were unrecognised noise and are dropped.
+    PulseSeconds is kept - it maps to SET_PULSE (60 means 60/60).
+  - R007: BundleCode/BalanceType produced a broken DEDUCT_BALANCE with no
+    amount source and no bundle action. Replaced with <Bundle>VOICE100</Bundle>,
+    which maps to CONSUME_BUNDLE - the required action for a FREE_UNIT rule.
+  - Catalogue entries this file references were created first:
+    NIGHT time band, VOICE100 bundle, CORP500 offer, LOCAL and FRANCE zones.
+-->
+<RuleImport version="1.1" sourceSystem="XML_IMPORT" format="FLAT_CANONICAL">
+
+  <Rule>
+    <RuleId>R001</RuleId>
+    <RuleName>Local Voice Peak</RuleName>
+    <Description>Local voice calls during peak hours are charged at 0.50 per started minute.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>USAGE_RATE</RuleType>
+    <Service>VOICE</Service>
+    <DestinationZone>LOCAL</DestinationZone>
+    <TimeBand>PEAK</TimeBand>
+    <Rate>0.50</Rate>
+    <Unit>SECOND</Unit>
+    <RatePerUnits>60</RatePerUnits>
+    <PulseSeconds>60</PulseSeconds>
+    <Currency>INR</Currency>
+    <Priority>100</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R002</RuleId>
+    <RuleName>Local Voice Off-Peak</RuleName>
+    <Description>Local voice calls during off-peak hours are charged at 0.30 per started minute.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>USAGE_RATE</RuleType>
+    <Service>VOICE</Service>
+    <DestinationZone>LOCAL</DestinationZone>
+    <TimeBand>OFF_PEAK</TimeBand>
+    <Rate>0.30</Rate>
+    <Unit>SECOND</Unit>
+    <RatePerUnits>60</RatePerUnits>
+    <PulseSeconds>60</PulseSeconds>
+    <Currency>INR</Currency>
+    <Priority>100</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R003</RuleId>
+    <RuleName>UK International Voice</RuleName>
+    <Description>Voice calls to the UK zone are charged at 12.00 per started minute.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>USAGE_RATE</RuleType>
+    <Service>VOICE</Service>
+    <DestinationZone>UK</DestinationZone>
+    <Rate>12.00</Rate>
+    <Unit>SECOND</Unit>
+    <RatePerUnits>60</RatePerUnits>
+    <PulseSeconds>60</PulseSeconds>
+    <Currency>INR</Currency>
+    <Priority>100</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R004</RuleId>
+    <RuleName>Local SMS</RuleName>
+    <Description>Local SMS events are charged at 0.20 per message.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>USAGE_RATE</RuleType>
+    <Service>SMS</Service>
+    <DestinationZone>LOCAL</DestinationZone>
+    <Rate>0.20</Rate>
+    <Unit>MESSAGE</Unit>
+    <RatePerUnits>1</RatePerUnits>
+    <Currency>INR</Currency>
+    <Priority>100</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R005</RuleId>
+    <RuleName>Internet Data Usage</RuleName>
+    <Description>Internet APN data usage is charged at 0.10 per started MB.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>USAGE_RATE</RuleType>
+    <Service>DATA</Service>
+    <APN>INTERNET</APN>
+    <Rate>0.10</Rate>
+    <Unit>MEGABYTE</Unit>
+    <RatePerUnits>1</RatePerUnits>
+    <Currency>INR</Currency>
+    <Priority>100</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R006</RuleId>
+    <RuleName>Night Voice Discount</RuleName>
+    <Description>Voice usage during the night time band receives a 50 percent discount.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>PERCENTAGE_DISCOUNT</RuleType>
+    <Service>VOICE</Service>
+    <TimeBand>NIGHT</TimeBand>
+    <Discount>50</Discount>
+    <Currency>INR</Currency>
+    <Priority>200</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R007</RuleId>
+    <RuleName>Voice Bundle Consumption</RuleName>
+    <Description>Consume available VOICE100 free minutes before monetary charging.</Description>
+    <ChargingMode>PREPAID</ChargingMode>
+    <RuleType>FREE_UNIT</RuleType>
+    <Service>VOICE</Service>
+    <Bundle>VOICE100</Bundle>
+    <Currency>INR</Currency>
+    <Priority>300</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R008</RuleId>
+    <RuleName>India Usage Tax</RuleName>
+    <Description>Apply 18 percent tax to non-tax-exempt subscribers in India.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>PERCENTAGE_TAX</RuleType>
+    <Service>VOICE</Service>
+    <TaxCountry>INDIA</TaxCountry>
+    <TaxExempt>FALSE</TaxExempt>
+    <Tax>INDIA_GST_18</Tax>
+    <Currency>INR</Currency>
+    <Priority>100</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R009</RuleId>
+    <RuleName>Corporate Postpaid Local Voice</RuleName>
+    <Description>CORP500 postpaid subscribers receive a local voice rate of 0.25 per minute.</Description>
+    <ChargingMode>POSTPAID</ChargingMode>
+    <RuleType>USAGE_RATE</RuleType>
+    <Service>VOICE</Service>
+    <DestinationZone>LOCAL</DestinationZone>
+    <AccountType>POSTPAID</AccountType>
+    <OfferCode>CORP500</OfferCode>
+    <Rate>0.25</Rate>
+    <Unit>SECOND</Unit>
+    <RatePerUnits>60</RatePerUnits>
+    <PulseSeconds>60</PulseSeconds>
+    <Currency>INR</Currency>
+    <Priority>200</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R010</RuleId>
+    <RuleName>Premium Number Voice</RuleName>
+    <Description>Premium voice numbers cost 5.00 per minute with a minimum event charge of 5.00.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>USAGE_RATE</RuleType>
+    <Service>VOICE</Service>
+    <DestinationZone>PREMIUM</DestinationZone>
+    <Rate>5.00</Rate>
+    <Unit>SECOND</Unit>
+    <RatePerUnits>60</RatePerUnits>
+    <PulseSeconds>60</PulseSeconds>
+    <MinimumCharge>5.00</MinimumCharge>
+    <Currency>INR</Currency>
+    <Priority>300</Priority>
+    <EffectiveFrom>2026-01-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R011</RuleId>
+    <RuleName>VIP Weekend Voice Discount</RuleName>
+    <Description>Apply a 20 percent discount to VIP voice usage during weekends.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>PERCENTAGE_DISCOUNT</RuleType>
+    <Service>VOICE</Service>
+    <CustomerSegment>VIP</CustomerSegment>
+    <DayType>WEEKEND</DayType>
+    <Discount>20</Discount>
+    <Currency>INR</Currency>
+    <Priority>250</Priority>
+    <EffectiveFrom>2026-08-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R101</RuleId>
+    <RuleName>Corporate Peak Local Voice</RuleName>
+    <Description>CORP500 postpaid local peak voice costs 0.25 per started minute.</Description>
+    <ChargingMode>POSTPAID</ChargingMode>
+    <RuleType>USAGE_RATE</RuleType>
+    <Service>VOICE</Service>
+    <DestinationZone>LOCAL</DestinationZone>
+    <TimeBand>PEAK</TimeBand>
+    <AccountType>POSTPAID</AccountType>
+    <OfferCode>CORP500</OfferCode>
+    <Rate>0.25</Rate>
+    <Unit>SECOND</Unit>
+    <RatePerUnits>60</RatePerUnits>
+    <PulseSeconds>60</PulseSeconds>
+    <Currency>INR</Currency>
+    <Priority>250</Priority>
+    <EffectiveFrom>2026-08-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R102</RuleId>
+    <RuleName>France International Voice</RuleName>
+    <Description>Voice calls to France cost 10 per started minute.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>USAGE_RATE</RuleType>
+    <Service>VOICE</Service>
+    <DestinationZone>FRANCE</DestinationZone>
+    <Rate>10.00</Rate>
+    <Unit>SECOND</Unit>
+    <RatePerUnits>60</RatePerUnits>
+    <PulseSeconds>60</PulseSeconds>
+    <Currency>INR</Currency>
+    <Priority>200</Priority>
+    <EffectiveFrom>2026-08-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+  <Rule>
+    <RuleId>R103</RuleId>
+    <RuleName>VIP Voice Discount</RuleName>
+    <Description>VIP subscribers receive 20 percent voice discount.</Description>
+    <ChargingMode>BOTH</ChargingMode>
+    <RuleType>PERCENTAGE_DISCOUNT</RuleType>
+    <Service>VOICE</Service>
+    <CustomerSegment>VIP</CustomerSegment>
+    <Discount>20</Discount>
+    <Currency>INR</Currency>
+    <Priority>220</Priority>
+    <EffectiveFrom>2026-08-01</EffectiveFrom>
+    <EffectiveTo></EffectiveTo>
+  </Rule>
+
+</RuleImport>

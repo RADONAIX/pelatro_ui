@@ -456,6 +456,32 @@ async def change_status(
         if rule.current_version_id
         else None
     )
+    # Going live: retire the previous live version first, exactly as the bulk
+    # activation path does (lifecycle/service.py). Without this, promoting a new
+    # version trips `ex_rule_version_active_window` — the database allows only
+    # one live version per rule — and the transition 422s.
+    if payload.status in (RuleStatus.ACTIVE, RuleStatus.PUBLISHED):
+        previous_live_versions = list(
+            (
+                await db.execute(
+                    select(CanonicalRuleVersion).where(
+                        CanonicalRuleVersion.rule_id == rule.rule_id,
+                        CanonicalRuleVersion.rule_version_id != rule.current_version_id,
+                        CanonicalRuleVersion.status.in_(
+                            (RuleStatus.ACTIVE, RuleStatus.PUBLISHED)
+                        ),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for previous_version in previous_live_versions:
+            previous_version.status = RuleStatus.SUPERSEDED
+            mirror_hooks.record_rule_version(db, previous_version.rule_version_id)
+        if previous_live_versions:
+            # Satisfy the one-live-version exclusion constraint before promoting.
+            await db.flush()
     now = datetime.now(UTC)
     rule.status = payload.status
     rule.updated_by = principal.id
@@ -781,7 +807,13 @@ async def _write_response(
 
     rule_id = record.rule_id
     if rule_id is None:
-        raise ConflictError("The rule was not persisted.")
+        # A QUARANTINED record carries the actual commit failure in `reason`
+        # (e.g. a version-number collision from two rapid saves). Surface it —
+        # a bare "not persisted" sends the operator hunting through logs.
+        raise ConflictError(
+            record.reason or "The rule was not persisted.",
+            details={"decision": record.decision, "issues": record.issues},
+        )
     rule = await svc.get_rule(db, rule_id)
     version = (
         await db.get(CanonicalRuleVersion, record.rule_version_id)

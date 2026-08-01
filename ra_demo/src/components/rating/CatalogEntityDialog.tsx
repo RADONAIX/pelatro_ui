@@ -51,8 +51,11 @@ function FieldControl({
   onChange: (v: FormValue) => void;
 }) {
   const t = useT();
+  // `*_id` columns are stored as the referenced row's id (a real FK); `*_code`
+  // columns (currency_code, unit_code, …) are stored as the code.
   const { options: refOptions, isLoading } = useReferenceOptions(
     field.data_type === "REFERENCE" ? field.reference : null,
+    field.key.endsWith("_id") ? "id" : "code",
   );
   const inputCls =
     "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none focus:border-primary";

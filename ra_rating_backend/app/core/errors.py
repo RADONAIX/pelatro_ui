@@ -220,17 +220,25 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(IntegrityError)
     async def _integrity(_: Request, exc: IntegrityError) -> JSONResponse:
-        origin = type(getattr(exc, "orig", exc)).__name__.lower()
-        if "unique" in origin:
+        # The asyncpg DBAPI wraps every constraint failure in a class literally
+        # named "IntegrityError", so the class name alone cannot distinguish a
+        # duplicate from a dead reference. SQLSTATE can (23505 unique, 23503
+        # foreign key); the name check stays as a fallback for other drivers.
+        orig = getattr(exc, "orig", exc)
+        origin = type(orig).__name__.lower()
+        sqlstate = getattr(orig, "sqlstate", None) or getattr(
+            getattr(orig, "__cause__", None), "sqlstate", None
+        )
+        if sqlstate == "23505" or "unique" in origin:
             code, http = "conflict", status.HTTP_409_CONFLICT
             message = "A record with these values already exists."
-        elif "foreignkey" in origin:
+        elif sqlstate == "23503" or "foreignkey" in origin:
             code, http = "conflict", status.HTTP_409_CONFLICT
             message = "Referenced record does not exist."
         else:
             code, http = "validation_failed", 422
             message = "A field value violates a database constraint."
-        log.warning("integrity_error", origin=origin)
+        log.warning("integrity_error", origin=origin, sqlstate=sqlstate)
         return JSONResponse(status_code=http, content=_envelope(code, message))
 
     @app.exception_handler(Exception)

@@ -168,18 +168,25 @@ export function useCatalogSummary() {
 
 /**
  * Value options for a REFERENCE-typed condition or action parameter.
- * Returns `{value: code, label: "CODE — Name"}` because rules reference the
+ * Defaults to `{value: code, label: "CODE — Name"}` because rules reference the
  * catalogue by *code*, not id — a rule then imports between environments
  * unchanged.
+ *
+ * Catalog foreign-key columns (`product_id`, `offer_id`, …) are the exception:
+ * the API stores the row *id* there, so a code would violate the FK. Callers
+ * whose field is an `*_id` column pass `valueKey: "id"`.
  */
-export function useReferenceOptions(entity: string | null | undefined) {
+export function useReferenceOptions(
+  entity: string | null | undefined,
+  valueKey: "code" | "id" = "code",
+) {
   const { data, isLoading } = useCatalogList(
     entity ?? "",
     { status: "ACTIVE" },
     !!entity,
   );
   const options = (data ?? []).map((row) => ({
-    value: row.code,
+    value: valueKey === "id" ? row.id : row.code,
     label: row.code === row.name ? row.code : `${row.code} — ${row.name}`,
   }));
   return { options, isLoading };

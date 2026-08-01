@@ -13,6 +13,16 @@ const HIDDEN_AUTHORING_PARAMS = new Set([
   "consume_order",
 ]);
 
+// Parameters the validator treats as either/or alternatives — mirrors the
+// backend's *_overspecified checks (validation/semantic.py). Setting one
+// clears its siblings, so the form can never submit the combination the API
+// is guaranteed to reject.
+const EXCLUSIVE_PARAM_GROUPS: Record<string, string[][]> = {
+  APPLY_DISCOUNT: [["discount", "percentage", "amount"]],
+  ADD_SURCHARGE: [["percentage", "amount"]],
+  APPLY_TAX: [["tax_rule", "rate_percent"]],
+};
+
 // ---------------------------------------------------------------------------
 // Visual action builder. Like the condition builder, every action and every
 // parameter it renders comes from the backend's ACTION_SPECS — so the form for
@@ -229,7 +239,19 @@ export function ActionBuilder({
                       onChange={(v) => {
                         const params = { ...action.params };
                         if (v === undefined || v === "") delete params[p.key];
-                        else params[p.key] = v;
+                        else {
+                          params[p.key] = v;
+                          // An either/or parameter displaces its alternatives.
+                          for (const group of EXCLUSIVE_PARAM_GROUPS[
+                            action.action_type
+                          ] ?? []) {
+                            if (group.includes(p.key)) {
+                              for (const sibling of group) {
+                                if (sibling !== p.key) delete params[sibling];
+                              }
+                            }
+                          }
+                        }
                         update(i, { params });
                       }}
                     />
