@@ -242,7 +242,11 @@ class Settings(BaseSettings):
     # Case Management service — where a breached run posts its case. Separate
     # process, so the call is best-effort: a case service that is down must not
     # fail a reconciliation whose results are already written.
-    cases_api_base: str = "http://127.0.0.1:8001"
+    #
+    # The API BASE, prefix included: that service mounts everything under /api,
+    # and the engine appends "/cases/ingest" to this value. Without the prefix
+    # every raised case 404s — silently, because the call is best-effort.
+    cases_api_base: str = "http://127.0.0.1:8001/api"
     recon_case_timeout_seconds: float = 10.0
 
     # --- ra-platform integration: Airflow REST (pipeline control) ----------

@@ -23,7 +23,12 @@ import {
 } from "@/lib/assurance/metadata-api";
 // Case priority vocabulary, aliased — this file already has its own SEVERITIES
 // for the rule's own severity, which is a narrower set than a case's.
-import { FALLBACK_CATALOG, SEVERITIES as CASE_SEVERITIES, fetchCatalog } from "@/lib/cases";
+import {
+  FALLBACK_CATALOG,
+  SEVERITIES as CASE_SEVERITIES,
+  fetchCatalog,
+  fetchFacets,
+} from "@/lib/cases";
 import {
   Dialog,
   DialogContent,
@@ -1017,6 +1022,34 @@ function CaseRoutingEditor({
     Number.isInteger(value.breachThreshold) && value.breachThreshold >= 1;
   const displayThreshold = thresholdValid ? value.breachThreshold : 1;
 
+  // Who a case can be assigned to, from the case service's own owner facet —
+  // the same vocabulary the Case Management filters use, so a rule-raised case
+  // lands on a name that already exists there rather than one typed freehand
+  // and misspelt. A facets outage leaves the list empty, which still offers
+  // Unassigned; it never blocks saving the rule.
+  const [owners, setOwners] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchFacets()
+      .then((facets) => {
+        if (!cancelled) setOwners(facets.owners.map((o) => o.value).filter(Boolean));
+      })
+      .catch(() => {
+        /* Unassigned remains selectable. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // A rule assigned to someone the facet no longer lists — they own no open
+  // case today — keeps that owner rather than being silently reassigned on
+  // open. Same rule the category and entity pickers follow.
+  const ownerOptions = useMemo(
+    () => (value.owner && !owners.includes(value.owner) ? [value.owner, ...owners] : owners),
+    [owners, value.owner],
+  );
+
   return (
     <div className="space-y-3 rounded-md border border-border p-3">
       <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -1044,13 +1077,23 @@ function CaseRoutingEditor({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="case-owner">Assign to</Label>
-          <Input
-            id="case-owner"
-            value={value.owner}
-            onChange={(e) => set({ owner: e.target.value })}
-            placeholder="Leave blank to raise unassigned"
-          />
+          <Label>Assign to</Label>
+          <Select
+            value={value.owner || UNASSIGNED_VALUE}
+            onValueChange={(v) => set({ owner: v === UNASSIGNED_VALUE ? "" : v })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
+              {ownerOptions.map((o) => (
+                <SelectItem key={o} value={o}>
+                  {o}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-1.5">
@@ -1225,3 +1268,6 @@ function FileLogEditor({
 
 /** Radix Select forbids an empty item value, so "no partition" needs a token. */
 const NONE_VALUE = "__none__";
+
+/** The same restriction, for "raise the case unassigned" — stored as "". */
+const UNASSIGNED_VALUE = "__unassigned__";
