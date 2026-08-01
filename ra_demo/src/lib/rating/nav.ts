@@ -2,6 +2,8 @@ import {
   Activity,
   BookOpenCheck,
   Briefcase,
+  Cpu,
+  Database,
   FileBarChart2,
   FlaskConical,
   Gauge,
@@ -9,6 +11,9 @@ import {
   Library,
   Package,
   PlayCircle,
+  Plug,
+  Server,
+  ServerCog,
   ShieldCheck,
 } from "lucide-react";
 
@@ -33,7 +38,18 @@ export interface RatingNavChild {
   icon: RatingIcon;
   /** Delivery phase. Anything above 1 is shown disabled with a "soon" tag. */
   phase: number;
+  /**
+   * Query params appended to `to`. Children that address sections of ONE screen
+   * rather than separate routes — System Monitoring's, which all open
+   * /monitoring and differ only by `?view=` — share a path and are told apart
+   * by this. Absent for the ordinary case of one child per route.
+   */
+  search?: Record<string, string>;
 }
+
+/** Identity for a child, since a path alone no longer distinguishes them. */
+export const navChildKey = (child: RatingNavChild) =>
+  child.search ? `${child.to}?${new URLSearchParams(child.search)}` : child.to;
 
 export interface RatingNavItem {
   to: string;
@@ -138,10 +154,37 @@ export const RATING_NAV: RatingNavItem[] = [
     icon: Briefcase,
     phase: 1,
   },
+  /**
+   * Infrastructure health for the whole fleet — the Grafana dashboards behind
+   * /monitoring, plus the ServerOps console. Platform-wide, so it says the same
+   * thing under every assurance.
+   *
+   * Its children are sections of ONE screen, selected by `?view=`, not separate
+   * routes; see RatingNavChild.search. The keys must match CATEGORIES in
+   * routes/monitoring.tsx — that file owns which dashboards each section embeds.
+   */
   {
-    to: "/rating/monitoring",
+    to: "/monitoring",
     label: "System Monitoring",
     icon: Gauge,
+    phase: 1,
+    children: [
+      { to: "/monitoring", label: "Applications", icon: Cpu, phase: 1, search: { view: "applications" } },
+      { to: "/monitoring", label: "Databases", icon: Database, phase: 1, search: { view: "databases" } },
+      { to: "/monitoring", label: "Report Servers", icon: Server, phase: 1, search: { view: "reportservers" } },
+      { to: "/monitoring", label: "Server Operations", icon: ServerCog, phase: 1, search: { view: "serverops" } },
+    ],
+  },
+  /**
+   * The rating SERVICE's own vitals — its databases, rule snapshot, connectors
+   * and pipeline jobs, read from ra_rating_backend. Assurance-specific despite
+   * the similar name: it describes one service, where /monitoring above
+   * describes the machines everything runs on.
+   */
+  {
+    to: "/rating/monitoring",
+    label: "Service Health",
+    icon: Activity,
     phase: 1,
   },
 ];

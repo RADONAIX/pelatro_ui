@@ -1,5 +1,6 @@
 import { createFileRoute, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { apiOrigin } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Cpu, Database, Monitor, Server, ServerCog } from "lucide-react";
@@ -7,14 +8,19 @@ import { useT } from "@/lib/i18n";
 
 export const Route = createFileRoute("/monitoring")({ component: MonitoringPage });
 
-// Grafana is served on the same HTTPS origin behind nginx at /grafana/.
-// Override with VITE_GRAFANA_URL if Grafana runs on a different host (e.g. local dev).
-const GRAFANA_URL = import.meta.env.VITE_GRAFANA_URL ?? "/grafana";
+// Grafana is served at /grafana/ on the app's own origin, behind the same nginx
+// that fronts /api (deploy/nginx/radonaix.conf). So it follows the API origin
+// rather than the page's: a bare "/grafana" resolved against whatever served
+// the SPA, which in dev is the Vite server — a host that has no Grafana on it.
+//
+// Set VITE_GRAFANA_URL when Grafana is somewhere else entirely (a dev box
+// running it on :3000, or a separate monitoring host).
+const GRAFANA_URL = import.meta.env.VITE_GRAFANA_URL ?? `${apiOrigin}/grafana`;
 
-// The ServerOps monitoring app (Complete_Monitoring_NoAuth) runs as its own
-// Next.js service, proxied same-origin at /serverops/. Embedded in the Report
-// Servers section as the "Server Operations" tab.
-const SERVEROPS_URL = import.meta.env.VITE_SERVEROPS_URL ?? "/serverops/";
+// The ServerOps console, embedded whole in its own section. Same origin rule as
+// Grafana above: nginx serves it at /serverops/ beside /api, so it follows the
+// API origin rather than the page's.
+const SERVEROPS_URL = import.meta.env.VITE_SERVEROPS_URL ?? `${apiOrigin}/serverops/`;
 
 type MonIcon = typeof Cpu;
 interface MonTab {

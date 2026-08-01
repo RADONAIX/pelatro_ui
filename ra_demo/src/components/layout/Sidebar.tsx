@@ -50,6 +50,10 @@ const RATING_ONLY_PATHS = new Set([
   "/rating/rules",
   "/rating/catalog",
   "/rating/execution",
+  // The rating service's own vitals, served by ra_rating_backend. Distinct from
+  // the platform-wide /monitoring below, which covers the machines rather than
+  // one service.
+  "/rating/monitoring",
 ]);
 
 const RATING_SCOPE_ID = "rating";
@@ -66,7 +70,7 @@ const RATING_REPORTS_PATH = "/rating/reports";
  * batch monitor under every scope — it was previously tinted as
  * assurance-specific on the strength of intent rather than behaviour.
  */
-const PLATFORM_NAV_PATHS = ["/cases", "/pipelines", "/rating/monitoring"] as const;
+const PLATFORM_NAV_PATHS = ["/cases", "/pipelines", "/monitoring"] as const;
 
 /**
  * The landing page, above every other module. Where login lands, and where the

@@ -16,6 +16,7 @@ import {
   RATING_NAV,
   RATING_AVAILABLE_PATHS,
   EXACT_MATCH_PATHS,
+  navChildKey,
   type RatingNavChild,
   type RatingNavItem,
 } from "@/lib/rating/nav";
@@ -154,6 +155,27 @@ export function RatingSidebarNav({
   });
   const search = useRouterState({ select: (st) => st.location.search }) as {
     report?: string;
+    view?: string;
+  };
+
+  /**
+   * Whether a child is the one currently open.
+   *
+   * Children that carry `search` all share a path — System Monitoring's four
+   * sections are one screen selected by `?view=` — so the path alone would
+   * light every one of them. They are compared on the param instead, and the
+   * FIRST such sibling wins when the URL carries none, matching the screen's
+   * own default.
+   */
+  /** Where the collapsed rail's icon points: the group's first real child. */
+  const firstAvailableChild = (siblings: RatingNavChild[]) =>
+    siblings.find((c) => availablePaths.has(c.to)) ?? siblings[0];
+
+  const isChildActive = (child: RatingNavChild, siblings: RatingNavChild[]) => {
+    if (!child.search) return isActive(child.to);
+    if (!isActive(child.to)) return false;
+    const first = siblings.find((c) => c.search)?.search?.view;
+    return (search.view ?? first) === child.search.view;
   };
   const onReports = pathname.startsWith(reports.path);
   const selectedReport = onReports
@@ -345,18 +367,19 @@ export function RatingSidebarNav({
                     if (!availablePaths.has(c.to)) {
                       return (
                         <SoonRow
-                          key={c.to}
+                          key={navChildKey(c)}
                           label={c.label}
                           icon={CIcon}
                           nested
                         />
                       );
                     }
-                    const childActive = isActive(c.to);
+                    const childActive = isChildActive(c, children);
                     return (
                       <Link
-                        key={c.to}
+                        key={navChildKey(c)}
                         to={c.to}
+                        search={c.search}
                         className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-[13px] transition-colors ${
                           childActive
                             ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
@@ -382,12 +405,8 @@ export function RatingSidebarNav({
           return (
             <div key={item.to} className="group relative">
               <Link
-                to={
-                  (
-                    children.find((c) => availablePaths.has(c.to)) ??
-                    children[0]
-                  ).to
-                }
+                to={firstAvailableChild(children).to}
+                search={firstAvailableChild(children).search}
                 aria-label={t(item.label)}
                 className={`relative flex items-center justify-center px-3 py-2.5 rounded-lg text-sm transition-colors ${
                   active
@@ -419,18 +438,19 @@ export function RatingSidebarNav({
                       if (!availablePaths.has(c.to)) {
                         return (
                           <SoonRow
-                            key={c.to}
+                            key={navChildKey(c)}
                             label={c.label}
                             icon={CIcon}
                             nested
                           />
                         );
                       }
-                      const childActive = isActive(c.to);
+                      const childActive = isChildActive(c, children);
                       return (
                         <Link
-                          key={c.to}
+                          key={navChildKey(c)}
                           to={c.to}
+                          search={c.search}
                           className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-[13px] transition-colors ${
                             childActive
                               ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
