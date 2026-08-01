@@ -1,5 +1,6 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { apiOrigin } from "@/lib/api";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { useT } from "@/lib/i18n";
@@ -20,9 +21,10 @@ export const Route = createFileRoute("/")({
 // Superset host the browser loads the iframe from (override per env if needed).
 const SUPERSET_DOMAIN = import.meta.env.VITE_SUPERSET_URL ?? "http://10.200.37.142:8088";
 const DASHBOARD_ID = "357ecae5-5f29-49f8-8dbd-b3f8d3f6be63";
-// Guest-token endpoint on OUR backend. Same base as auth: localhost in dev,
-// empty (relative -> nginx proxies /api) in the single-origin production build.
-const GUEST_TOKEN_URL = `${import.meta.env.VITE_AUTH_API_BASE ?? ""}/api/superset/guest-token`;
+// Guest-token endpoint on OUR backend. Same origin as every other platform
+// call, so it follows VITE_API_BASE_URL and resolves to a relative path (nginx
+// proxies /api) in the single-origin production build.
+const GUEST_TOKEN_URL = `${import.meta.env.VITE_AUTH_API_BASE ?? apiOrigin}/api/superset/guest-token`;
 
 function DashboardPage() {
   const t = useT();

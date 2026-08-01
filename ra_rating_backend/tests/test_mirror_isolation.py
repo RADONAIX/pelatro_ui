@@ -164,6 +164,29 @@ async def test_a_failing_mirror_write_never_escapes(monkeypatch):
     assert session.info.get("_mirror_queue") is None
 
 
+@pytest.mark.asyncio
+async def test_canonical_mirror_reader_rebinds_tenant_after_primary_commit(monkeypatch):
+    """Commit clears SET LOCAL; the post-commit reader must restore it for RLS."""
+    from app.modules.mirror import sync
+    from app.modules.tenancy import context as tenant_context
+
+    calls: list[tuple[object, str]] = []
+
+    class _Primary:
+        async def get(self, *_args):
+            return None
+
+    async def _bind(db, tenant_id):
+        calls.append((db, tenant_id))
+
+    primary = _Primary()
+    monkeypatch.setattr(tenant_context, "current_tenant", lambda: "tenant-a")
+    monkeypatch.setattr(tenant_context, "bind_session", _bind)
+
+    assert await sync.push_rule_version(primary, "new-version") is False
+    assert calls == [(primary, "tenant-a")]
+
+
 # --- Vocabulary self-healing -------------------------------------------------
 #
 # The lookup tables are projections of Python registries, seeded at startup. If

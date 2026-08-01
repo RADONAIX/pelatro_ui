@@ -38,6 +38,7 @@ from app.modules.rules.canonical.lookups import (
 )
 from app.modules.rules.canonical.rule import CanonicalRule, CanonicalRuleVersion
 from app.modules.rules.models import Rule as LegacyRule
+from app.modules.tenancy import context as tenant_context
 
 log = get_logger("mirror.sync")
 
@@ -123,6 +124,12 @@ async def _tax_rates(primary: AsyncSession, action_codes: set[str]) -> dict[str,
 
 async def push_rule_version(primary: AsyncSession, rule_version_id: str) -> bool:
     """Mirror one rule version and its logic. Returns whether anything was written."""
+    # Canonical tables enforce tenant RLS with a transaction-local setting. The
+    # request's primary transaction is committed before the mirror queue drains,
+    # so PostgreSQL has correctly cleared that setting by the time this reader
+    # starts its new transaction. Re-bind the same request/job tenant here or the
+    # freshly committed version is invisible and is incorrectly logged missing.
+    await tenant_context.bind_session(primary, tenant_context.current_tenant())
     version = await primary.get(CanonicalRuleVersion, rule_version_id)
     if version is None:
         log.warning("mirror_version_missing", rule_version_id=rule_version_id)

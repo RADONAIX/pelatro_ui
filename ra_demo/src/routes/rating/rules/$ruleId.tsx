@@ -174,7 +174,7 @@ function RuleDetailPage() {
     if (!rule) return;
     try {
       const response = await clone.mutateAsync({
-        rule_name: `${rule.rule_name} (copy)`,
+        rule_name: cloneRuleName(rule.rule_name),
       });
       toast.success(t("Rule cloned"), {
         description: response.rule.rule_key,
@@ -535,6 +535,11 @@ function RuleDetailPage() {
       )}
     </AppShell>
   );
+}
+
+function cloneRuleName(name: string): string {
+  const base = name.trim().replace(/(?:\s+\(copy\))+$/gi, "");
+  return `${base} (copy)`;
 }
 
 function Label({ children }: { children: React.ReactNode }) {
