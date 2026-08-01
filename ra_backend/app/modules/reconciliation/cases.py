@@ -6,10 +6,20 @@ produces the counts. This module is the only place the two meet.
 Best-effort by design: the case service is a separate process on its own port,
 and it being down must not fail a reconciliation that has already written its
 results. A failure here is logged and the run still succeeds.
+
+REGISTERING ON DEMAND
+The case service keeps its own control-rule registry and rejects a case whose
+ruleId it does not know. A rule's FIRST run happens inside the create request
+that authored it — before anything has had a chance to register it there — so
+that first case used to be lost to a 400 while every later run succeeded.
+`_register_rule` closes that: an unknown-rule rejection registers the rule and
+retries once, which makes the first run behave like every other one and also
+covers a rule created directly against the API or replayed by the scheduler.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
@@ -19,6 +29,7 @@ from app.core.logging import get_logger
 from app.modules.reconciliation.plan import (
     KIND_DUPLICATE,
     KIND_RECONCILIATION,
+    KIND_SEQUENCE,
     KIND_THRESHOLD,
     STATUS_THRESHOLD_BREACH,
     STATUS_GAP,
@@ -78,6 +89,75 @@ def should_raise(plan: ReconPlan, counts: dict[str, int]) -> tuple[bool, int]:
     return breached >= max(1, plan.breach_threshold), breached
 
 
+#: Our rule kinds, in the case service's own primitive-category vocabulary.
+#: An unmapped kind registers with no category rather than a wrong one — the
+#: field is optional there, and a value outside its list is rejected.
+_CATEGORY_FOR_KIND = {
+    KIND_RECONCILIATION: "Reconciliation",
+    KIND_SEQUENCE: "Sequence",
+    KIND_DUPLICATE: "Duplicate",
+    KIND_THRESHOLD: "Threshold",
+}
+
+#: A control id opens with its assurance code — RA904 is Rating, CA910 Charging.
+#: That is the case service's own numbering convention, and the only reliable
+#: translation from our lowercase app ids ("rating") to its codes ("RA"), which
+#: is what it resolves an assurance by.
+_RULE_ID_PREFIX = re.compile(r"^([A-Z]{2,4})[0-9]+$")
+
+
+def _assurance_code(plan: ReconPlan) -> str:
+    match = _RULE_ID_PREFIX.match(plan.rule_id.strip().upper())
+    return match.group(1) if match else plan.assurance_id
+
+
+def _base() -> str:
+    return settings.cases_api_base.rstrip("/")
+
+
+async def _register_rule(client: httpx.AsyncClient, plan: ReconPlan) -> bool:
+    """Register this rule with the case service. True when it is now known.
+
+    Only what the case service needs to classify a case: the rest of the rule —
+    its keys, metrics and generated SQL — stays here, where it is executed.
+    A 409 counts as success; it means something else registered it first.
+    """
+    payload = {
+        "id": plan.rule_id,
+        "name": plan.rule_name,
+        "assurance": _assurance_code(plan),
+        "primitiveCategory": _CATEGORY_FOR_KIND.get(plan.kind, ""),
+        "severity": plan.severity,
+        "frequency": plan.frequency,
+        "sourceFeed": f"{plan.left.database}:{plan.left.qualified}",
+        "targetFeed": f"{plan.right.database}:{plan.right.qualified}",
+        "lifecycleState": "Active",
+        "createdBy": "reconciliation-engine",
+    }
+    response = await client.post(f"{_base()}/rules", json=payload)
+    if response.status_code == 409:
+        return True
+    if response.is_success:
+        log.info("recon_rule_registered", rule_id=plan.rule_id)
+        return True
+    log.warning(
+        "recon_rule_register_failed",
+        rule_id=plan.rule_id,
+        status=response.status_code,
+        detail=response.text[:200],
+    )
+    return False
+
+
+def _rule_unknown(response: httpx.Response) -> bool:
+    """Whether a rejection means "I do not know that rule" specifically.
+
+    Narrow on purpose: a 400 for a bad severity or a malformed body must not
+    trigger a registration attempt that cannot fix it.
+    """
+    return response.status_code == 400 and "unknown rule" in response.text.lower()
+
+
 async def raise_case_if_breached(
     plan: ReconPlan, counts: dict[str, int], *, execution_id: str
 ) -> dict[str, Any] | None:
@@ -120,9 +200,14 @@ async def raise_case_if_breached(
 
     try:
         async with httpx.AsyncClient(timeout=settings.recon_case_timeout_seconds) as client:
-            response = await client.post(
-                f"{settings.cases_api_base.rstrip('/')}/cases/ingest", json=payload
-            )
+            response = await client.post(f"{_base()}/cases/ingest", json=payload)
+
+            # A rule's first run happens inside the request that created it, so
+            # the case service can legitimately not know the rule yet. Register
+            # it and post once more, rather than losing the first finding.
+            if _rule_unknown(response) and await _register_rule(client, plan):
+                response = await client.post(f"{_base()}/cases/ingest", json=payload)
+
             response.raise_for_status()
             created = response.json()
         log.info(

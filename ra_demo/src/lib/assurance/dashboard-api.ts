@@ -2,8 +2,7 @@ import { api } from "@/lib/api";
 import { type AssuranceDashboard, currencySymbol } from "./dashboard-config";
 
 // ---------------------------------------------------------------------------
-// The executive dashboard, served by RA_Backend from
-// canonical_rating.rating_reconciliation in rafms_rating.
+// The executive dashboard, served by RA_Backend.
 //
 // The wire shape IS AssuranceDashboard — the server emits camelCase fields with
 // the same names the charts already read — so nothing is remapped here beyond
@@ -22,6 +21,7 @@ export const LIVE_DASHBOARD_APP_IDS: ReadonlySet<string> = new Set([
   // Usage reads assurance.voice_sms_match_report and returns this same shape,
   // so it renders through the same six charts rather than a lookalike.
   "usage",
+  "charging",
 ]);
 
 /**
