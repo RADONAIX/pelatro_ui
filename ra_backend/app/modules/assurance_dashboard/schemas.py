@@ -70,6 +70,8 @@ class AssuranceDashboardOut(BaseModel):
     currency: str
     kpis: Kpis
     trendTitle: str
+    #: Cadence of `trend`, when it is not the daily one the panel assumes.
+    trendSubtitle: str | None = None
     trend: list[TrendPoint]
     revenueAtRisk: list[Point]
     #: Cadence of `revenueAtRisk`, when it is not the daily one the panel

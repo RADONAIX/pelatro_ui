@@ -61,6 +61,8 @@ export type AssuranceDashboard = {
   kpis: Record<KpiKey, KpiValue>;
   /** Row 1 left — dynamic title, always the same three series. */
   trendTitle: string;
+  /** Cadence of `trend`, when it is not daily. See `riskTrendSubtitle`. */
+  trendSubtitle?: string;
   trend: TrendPoint[];
   /** Row 1 centre — common to every assurance. */
   revenueAtRisk: Point[];

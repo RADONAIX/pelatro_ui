@@ -61,6 +61,9 @@ _LEAKAGE_TYPE = "usage_assurance"
 #: allows MATCH and MISMATCH only.
 _LEAKAGE_AT_RISK = "MISMATCH"
 
+#: The other status the same check constraint allows: money that reconciled.
+_LEAKAGE_MATCHED = "MATCH"
+
 #: The status meaning MSC and IN agree. Everything else is an exception, so a
 #: status added later counts as an exception rather than silently as healthy.
 MATCHED_STATUS = "MATCHED"
@@ -83,12 +86,9 @@ _GAP_CATEGORY = """
     END
 """
 
-#: Daily buckets carried by each KPI sparkline.
-_SPARK_DAYS = 14
-#: Monthly buckets carried by the revenue-at-risk sparkline, which is monthly.
+#: Monthly buckets carried by each KPI sparkline. The source is monthly, so the
+#: sparklines are too.
 _SPARK_MONTHS = 12
-#: Window compared against the preceding equal-length window for each delta.
-_DELTA_DAYS = 7
 
 #: How many bars the two attribution panels carry.
 _TOP_N = 8
@@ -113,63 +113,6 @@ def _pct_delta(current: float, prior: float) -> float:
 
 def _kpi(value: str, *, delta: float, higher_is_better: bool, spark: list[float]) -> dict[str, Any]:
     return {"value": value, "delta": delta, "higherIsBetter": higher_is_better, "spark": spark}
-
-
-async def _totals() -> dict[str, Any]:
-    rows = await _query(
-        f"""
-        SELECT count(*)                                            AS records,
-               count(*) FILTER (WHERE status = :matched)           AS matched,
-               count(*) FILTER (WHERE status <> :matched)          AS exceptions,
-               coalesce(sum({_MONEY}) FILTER (WHERE status <> :matched), 0) AS at_risk,
-               coalesce(sum({_MONEY}), 0)                          AS debit_total
-        FROM {_TABLE}
-        """,
-        {"matched": MATCHED_STATUS},
-    )
-    return rows[0] if rows else {}
-
-
-async def _window_totals(days: int, offset_days: int) -> dict[str, Any]:
-    """The same counts over a window ending `offset_days` before the newest row.
-
-    Anchored on max(created_at) rather than now() for the same reason the Rating
-    builder anchors on max(event_time): this table is written in batches, so a
-    wall-clock window can contain no rows and would report every KPI as having
-    collapsed to zero.
-    """
-    rows = await _query(
-        f"""
-        WITH bounds AS (SELECT max(created_at) AS latest FROM {_TABLE})
-        SELECT count(*)                                            AS records,
-               count(*) FILTER (WHERE status = :matched)           AS matched,
-               count(*) FILTER (WHERE status <> :matched)          AS exceptions,
-               coalesce(sum({_MONEY}) FILTER (WHERE status <> :matched), 0) AS at_risk
-        FROM {_TABLE}, bounds
-        WHERE created_at >  bounds.latest - make_interval(days => :older)
-          AND created_at <= bounds.latest - make_interval(days => :newer)
-        """,
-        {"matched": MATCHED_STATUS, "older": days + offset_days, "newer": offset_days},
-    )
-    return rows[0] if rows else {}
-
-
-async def _daily() -> list[dict[str, Any]]:
-    """One row per day the report was written, oldest first."""
-    return await _query(
-        f"""
-        SELECT created_at::date                                    AS day,
-               count(*)                                            AS records,
-               count(*) FILTER (WHERE status = :matched)           AS matched,
-               count(*) FILTER (WHERE status <> :matched)          AS exceptions,
-               coalesce(sum({_MONEY}) FILTER (WHERE status <> :matched), 0) AS at_risk
-        FROM {_TABLE}
-        WHERE created_at IS NOT NULL
-        GROUP BY 1
-        ORDER BY 1
-        """,
-        {"matched": MATCHED_STATUS},
-    )
 
 
 async def _grouped(expression: str, *, exceptions_only: bool, limit: int | None = None) -> list[dict[str, Any]]:
@@ -215,6 +158,29 @@ async def _leakage_monthly() -> list[dict[str, Any]]:
     )
 
 
+async def _leakage_volume() -> list[dict[str, Any]]:
+    """Reconciled and mismatched volume per month, with the money at risk.
+
+    The three series the volume chart draws, all from the leakage table so the
+    panel is internally consistent: its healthy and exception counts and its
+    leakage line come from the same rows, rather than the counts coming from the
+    record-level report and the money from here.
+    """
+    return await _query(
+        f"""
+        SELECT month_date                                                  AS month,
+               coalesce(sum("count") FILTER (WHERE status = :matched), 0)  AS healthy,
+               coalesce(sum("count") FILTER (WHERE status = :risk), 0)     AS exceptions,
+               coalesce(sum(amount)  FILTER (WHERE status = :risk), 0)     AS leakage
+        FROM {_LEAKAGE_TABLE}
+        WHERE assurance_type = :type
+        GROUP BY month_date
+        ORDER BY month_date
+        """,
+        {"type": _LEAKAGE_TYPE, "matched": _LEAKAGE_MATCHED, "risk": _LEAKAGE_AT_RISK},
+    )
+
+
 async def _leakage_by_category() -> list[dict[str, Any]]:
     """Money at risk per leakage category, worst first."""
     return await _query(
@@ -248,14 +214,6 @@ async def _findings(limit: int = 5) -> list[dict[str, Any]]:
     )
 
 
-def _spark(daily: list[dict[str, Any]], key: str, digits: int = 2) -> list[float]:
-    return [round(_num(row.get(key)), digits) for row in daily[-_SPARK_DAYS:]]
-
-
-def _label(day: Any) -> str:
-    return day.strftime("%d %b") if isinstance(day, date) else ""
-
-
 def _month_label(month: Any) -> str:
     return month.strftime("%b %Y") if isinstance(month, date) else ""
 
@@ -268,29 +226,30 @@ def _titleise(name: str) -> str:
 
 async def build_dashboard() -> dict[str, Any]:
     """The whole dashboard payload for Usage Assurance."""
-    totals = await _totals()
-    daily = await _daily()
-    recent = await _window_totals(_DELTA_DAYS, 0)
-    prior = await _window_totals(_DELTA_DAYS, _DELTA_DAYS)
+    # Every headline figure comes from the monthly leakage table, so the five
+    # cards and the volume chart below them describe ONE population. Sourcing
+    # the counts from the record-level match report instead put 739 evaluated
+    # above a chart totalling 89.
+    volume = await _leakage_volume()
+    leakage = await _leakage_monthly()
 
-    records = _num(totals.get("records"))
-    matched = _num(totals.get("matched"))
-    exceptions = _num(totals.get("exceptions"))
+    matched = sum(_num(row.get("healthy")) for row in volume)
+    exceptions = sum(_num(row.get("exceptions")) for row in volume)
+    records = matched + exceptions
+    at_risk = sum(_num(row.get("amount")) for row in leakage)
 
     exception_rate = round(exceptions / records * 100, 2) if records else 0.0
     reconciliation = round(matched / records * 100, 2) if records else 0.0
 
-    r_records, r_exceptions = _num(recent.get("records")), _num(recent.get("exceptions"))
-    p_records, p_exceptions = _num(prior.get("records")), _num(prior.get("exceptions"))
-    r_rate = (r_exceptions / r_records * 100) if r_records else 0.0
-    p_rate = (p_exceptions / p_records * 100) if p_records else 0.0
-    r_recon = ((r_records - r_exceptions) / r_records * 100) if r_records else 0.0
-    p_recon = ((p_records - p_exceptions) / p_records * 100) if p_records else 0.0
-
-    leakage = await _leakage_monthly()
-    at_risk = sum(_num(row.get("amount")) for row in leakage)
-    # Latest month against the one before it — the comparison the source's own
+    # Latest month against the one before it — the comparison this source's own
     # granularity supports. A single month of data reports no change.
+    def _last(key: str, back: int = 1) -> float:
+        return _num(volume[-back].get(key)) if len(volume) >= back else 0.0
+
+    def _rate(key: str, back: int) -> float:
+        total = _last("healthy", back) + _last("exceptions", back)
+        return (_last(key, back) / total * 100) if total else 0.0
+
     risk_delta = _pct_delta(
         _num(leakage[-1].get("amount")) if leakage else 0.0,
         _num(leakage[-2].get("amount")) if len(leakage) > 1 else 0.0,
@@ -301,7 +260,11 @@ async def build_dashboard() -> dict[str, Any]:
     service_rows = await _grouped("service_type", exceptions_only=False)
     leakage_categories = await _leakage_by_category()
 
-    span = f"{_label(daily[0]['day'])} – {_label(daily[-1]['day'])}" if daily else ""
+    span = (
+        f"{_month_label(volume[0]['month'])} – {_month_label(volume[-1]['month'])}"
+        if volume
+        else ""
+    )
 
     return {
         "id": ASSURANCE,
@@ -323,48 +286,69 @@ async def build_dashboard() -> dict[str, Any]:
             ),
             "recordsEvaluated": _kpi(
                 f"{int(records):,}",
-                delta=_pct_delta(r_records, p_records),
+                delta=_pct_delta(
+                    _last("healthy") + _last("exceptions"),
+                    _last("healthy", 2) + _last("exceptions", 2),
+                ),
                 higher_is_better=True,
-                spark=_spark(daily, "records"),
+                spark=[
+                    _num(row.get("healthy")) + _num(row.get("exceptions"))
+                    for row in volume[-_SPARK_MONTHS:]
+                ],
             ),
             "exceptions": _kpi(
                 f"{int(exceptions):,}",
-                delta=_pct_delta(r_exceptions, p_exceptions),
+                delta=_pct_delta(_last("exceptions"), _last("exceptions", 2)),
                 higher_is_better=False,
-                spark=_spark(daily, "exceptions"),
+                spark=[_num(row.get("exceptions")) for row in volume[-_SPARK_MONTHS:]],
             ),
             "exceptionRate": _kpi(
                 f"{exception_rate:.2f}%",
-                delta=_pct_delta(r_rate, p_rate),
+                delta=_pct_delta(_rate("exceptions", 1), _rate("exceptions", 2)),
                 higher_is_better=False,
                 spark=[
-                    round(_num(d.get("exceptions")) / _num(d.get("records")) * 100, 2)
-                    if _num(d.get("records"))
+                    round(
+                        _num(row.get("exceptions"))
+                        / (_num(row.get("healthy")) + _num(row.get("exceptions")))
+                        * 100,
+                        2,
+                    )
+                    if (_num(row.get("healthy")) + _num(row.get("exceptions")))
                     else 0.0
-                    for d in daily[-_SPARK_DAYS:]
+                    for row in volume[-_SPARK_MONTHS:]
                 ],
             ),
             "reconciliation": _kpi(
                 f"{reconciliation:.2f}%",
-                delta=_pct_delta(r_recon, p_recon),
+                delta=_pct_delta(_rate("healthy", 1), _rate("healthy", 2)),
                 higher_is_better=True,
                 spark=[
-                    round(_num(d.get("matched")) / _num(d.get("records")) * 100, 2)
-                    if _num(d.get("records"))
+                    round(
+                        _num(row.get("healthy"))
+                        / (_num(row.get("healthy")) + _num(row.get("exceptions")))
+                        * 100,
+                        2,
+                    )
+                    if (_num(row.get("healthy")) + _num(row.get("exceptions")))
                     else 0.0
-                    for d in daily[-_SPARK_DAYS:]
+                    for row in volume[-_SPARK_MONTHS:]
                 ],
             ),
         },
         "trendTitle": "Reconciliation Volume",
+        # Monthly, from the leakage table, so all three series share one source
+        # and one cadence. Sourcing the counts from the record-level report and
+        # only the leakage line from here would have put two populations on one
+        # pair of axes.
+        "trendSubtitle": "Monthly · reconciled vs mismatched",
         "trend": [
             {
-                "label": _label(row["day"]),
-                "healthy": _num(row.get("matched")),
+                "label": _month_label(row["month"]),
+                "healthy": _num(row.get("healthy")),
                 "exceptions": _num(row.get("exceptions")),
-                "leakage": round(_num(row.get("at_risk")), 2),
+                "leakage": round(_num(row.get("leakage")), 2),
             }
-            for row in daily
+            for row in volume
         ],
         # Monthly, because that is the granularity the leakage table records.
         # `riskTrendSubtitle` tells the panel to say so rather than claim daily.

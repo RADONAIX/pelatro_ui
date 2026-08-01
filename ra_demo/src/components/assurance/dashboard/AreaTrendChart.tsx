@@ -23,10 +23,31 @@ const SERIES = [
 export function AreaTrendChart({
   data,
   unit,
+  scaled = true,
+  moneyFormatter,
 }: {
   data: TrendPoint[];
   unit: string;
+  /**
+   * Whether the values are authored in thousands.
+   *
+   * True for the synthetic profiles, which are. False for anything served from
+   * a real results table, where 13 rows are 13 rows — the "K" this used to
+   * append unconditionally turned them into 13,000.
+   */
+  scaled?: boolean;
+  /** Formats the leakage series, which is money and not a record count. */
+  moneyFormatter?: (value: number) => string;
 }) {
+  const LEAKAGE_LABEL = SERIES[2].label;
+  const format = (value: number, name: string) => {
+    // The third series is currency. Labelling it with the record unit said
+    // "6 CDRs" for what is ₹6 of leakage.
+    if (name === LEAKAGE_LABEL && moneyFormatter) return moneyFormatter(value);
+    const count = Number(value).toLocaleString("en-IN");
+    return scaled ? `${count}K ${unit}` : `${count} ${unit}`;
+  };
+
   return (
     <div className="h-[268px] w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -81,7 +102,7 @@ export function AreaTrendChart({
               marginBottom: 4,
             }}
             formatter={(value: number, name: string) => [
-              `${Number(value).toLocaleString("en-IN")}K ${unit}`,
+              format(Number(value), name),
               name,
             ]}
           />

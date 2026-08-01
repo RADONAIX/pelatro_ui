@@ -135,9 +135,10 @@ export function ExecutiveDashboard({ app }: { app: AppMetadata }) {
           className="xl:col-span-6"
           title={d.trendTitle}
           subtitle={
-            live
+            d.trendSubtitle ??
+            (live
               ? `Daily · ${d.recordUnit.toLowerCase()} reconciled`
-              : "Last 12 months · thousands of records"
+              : "Last 12 months · thousands of records")
           }
           meta={
             <div className="flex items-center gap-3">
@@ -147,7 +148,12 @@ export function ExecutiveDashboard({ app }: { app: AppMetadata }) {
             </div>
           }
         >
-          <AreaTrendChart data={d.trend} unit={d.recordUnit} />
+          <AreaTrendChart
+            data={d.trend}
+            unit={d.recordUnit}
+            scaled={!live}
+            moneyFormatter={money}
+          />
         </DashboardCard>
 
         <DashboardCard
