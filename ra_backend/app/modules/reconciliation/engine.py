@@ -227,7 +227,7 @@ async def execute(
         raise
     except Exception as exc:  # noqa: BLE001
         duration_ms = int((time.perf_counter() - started) * 1000)
-        message = str(exc)
+        message = _describe_failure(exc)
         await repository.fail_execution(
             execution_id=execution_id, error=message, duration_ms=duration_ms
         )
@@ -314,6 +314,19 @@ async def _load(plan: ReconPlan, execution_id: str) -> dict[str, int]:
         log.warning("recon_analyze_failed", rule_id=plan.rule_id, error=str(exc))
 
     return counts
+
+
+def _describe_failure(exc: Exception) -> str:
+    """The reason a run failed, not just its headline.
+
+    An AppError's str() is only its summary — "ra-platform Postgres write
+    failed." — while the SQL error that actually explains it sits in `details`.
+    Recording the summary alone left a Failed rule showing a message nobody
+    could act on, which is exactly when the detail matters most.
+    """
+    details = getattr(exc, "details", None)
+    reason = (details or {}).get("reason") if isinstance(details, dict) else None
+    return f"{exc}: {reason}" if reason else str(exc)
 
 
 async def _store_report(
