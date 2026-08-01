@@ -22,18 +22,43 @@ import {
 } from "@/lib/assurance/reconciliation-api";
 
 /** Rows shown inline. The point is a shape, not a dataset. */
-const SAMPLE_SIZE = 10;
+const SAMPLE_SIZE = 5;
 
 /**
- * Rows fetched to fill that sample.
- *
- * The report page filters by ONE status, and "breached" is three of them for a
- * reconciliation, so the breach filter happens here — over a page big enough
- * that a healthy run's matches don't crowd the sample out.
+ * Unfiltered rows fetched first, for the report's shape — its columns, its key
+ * columns, and which statuses it can produce. Doubles as the fallback sample if
+ * the per-status reads below come back empty.
  */
-const FETCH_SIZE = 120;
+const PROBE_SIZE = 40;
 
-/** A row that reconciled cleanly is not why the case exists. */
+/** Rows read per status. Only a few are needed; the rest is the full report. */
+const PER_STATUS = 12;
+
+/**
+ * Status order when filling the sample.
+ *
+ * Breaches first — the case exists because of them — then the clean rows, which
+ * earn their place by contrast: seeing a MATCH beside a MISMATCH is what shows
+ * that the control is discriminating rather than failing everything.
+ */
+const STATUS_PRIORITY = [
+  "MISMATCH",
+  "TABLE1_MISSING",
+  "TABLE2_MISSING",
+  "RAW_MISSING",
+  "PROCESSED_MISSING",
+  "GAP",
+  "DUPLICATE",
+  "MATCH",
+  "PRESENT",
+];
+
+const statusRank = (status: string) => {
+  const i = STATUS_PRIORITY.indexOf(status.toUpperCase());
+  return i === -1 ? STATUS_PRIORITY.length : i;
+};
+
+/** A row that reconciled cleanly — counted separately from the breach total. */
 const CLEAN_STATUSES = new Set(["MATCH", "PRESENT"]);
 
 export interface RuleReportSampleData {
@@ -72,15 +97,17 @@ function mockSample(c: AssuranceCase): RuleReportSampleData {
     "actual_value",
     "status",
   ];
+  // A distinct subscriber and a spread of statuses, for the same reasons the
+  // live sampler works that way: one repeated number says nothing about the
+  // spread, and one repeated status nothing about what the control separates.
+  const statuses = ["MISMATCH", "TABLE1_MISSING", "TABLE2_MISSING", "MATCH", "MISMATCH"];
   const rows = Array.from({ length: SAMPLE_SIZE }, (_, i) => ({
-    // A distinct subscriber per row, for the same reason distinctBySubject
-    // exists: a column of one repeated number says nothing about the spread.
     calling_party_number: `98760000${String(i + 1).padStart(2, "0")}`,
     called_party_number: i % 3 === 0 ? "9812345678" : `8559${String(89284 + i * 7)}`,
     event_time: new Date(Date.parse(c.detectedAt) - i * 61_000).toISOString(),
     expected_value: (12 + (i % 5)).toFixed(2),
-    actual_value: (50 + (i % 5) * 3).toFixed(2),
-    status: i % 4 === 0 ? "MISMATCH" : "TABLE1_MISSING",
+    actual_value: statuses[i] === "MATCH" ? (12 + (i % 5)).toFixed(2) : (50 + (i % 5) * 3).toFixed(2),
+    status: statuses[i],
   }));
   return {
     columns,
@@ -106,34 +133,64 @@ function mockSample(c: AssuranceCase): RuleReportSampleData {
  * column would collapse every such row onto the same empty subject — which is
  * exactly what a sample of them must not do.
  */
-function distinctBySubject(
-  rows: Record<string, unknown>[],
+/**
+ * Pick the sample: one row per status in turn, and never the same subject
+ * twice.
+ *
+ * Round-robin rather than "first N of the breached rows". A run's rows arrive
+ * grouped, so taking a slice off the top gave five rows of one status about one
+ * subscriber — true, but it showed neither what the control distinguishes nor
+ * how far the fault spreads. Cycling the statuses covers the outcomes; the
+ * subject check covers the spread.
+ *
+ * The subject is the report's KEY columns, joined, with nulls dropped: a row
+ * missing from one table carries its identity only on the other, so keying on a
+ * single column would collapse every such row onto the same empty subject.
+ */
+function pickSample(
+  byStatus: Map<string, Record<string, unknown>[]>,
   columns: string[],
   keyColumns: string[] | undefined,
 ): Record<string, unknown>[] {
   // Falls back to the leading column for a report served before the backend
   // published its key list.
   const keys = keyColumns?.length ? keyColumns : columns.slice(0, 1);
-  if (!keys.length) return rows.slice(0, SAMPLE_SIZE);
-
   const subjectOf = (row: Record<string, unknown>) =>
     keys
       .map((k) => row[k])
       .filter((v) => v !== null && v !== undefined && v !== "")
       .join("|");
 
+  const queues = [...byStatus.entries()]
+    .sort(([a], [b]) => statusRank(a) - statusRank(b))
+    .map(([, rows]) => [...rows]);
+
   const seen = new Set<string>();
   const picked: Record<string, unknown>[] = [];
-  for (const row of rows) {
-    const subject = subjectOf(row);
-    if (seen.has(subject)) continue;
-    seen.add(subject);
-    picked.push(row);
+
+  // Two passes over the queues: the first insists on an unseen subject, the
+  // second accepts a repeat rather than leaving the table short. Coverage of
+  // the statuses is worth more than absolute uniqueness once the report has
+  // genuinely run out of distinct subjects.
+  for (const strict of [true, false]) {
+    let progressed = true;
+    while (picked.length < SAMPLE_SIZE && progressed) {
+      progressed = false;
+      for (const queue of queues) {
+        if (picked.length === SAMPLE_SIZE) break;
+        while (queue.length) {
+          const row = queue.shift()!;
+          const subject = subjectOf(row);
+          if (strict && seen.has(subject)) continue;
+          seen.add(subject);
+          picked.push(row);
+          progressed = true;
+          break;
+        }
+      }
+    }
     if (picked.length === SAMPLE_SIZE) break;
   }
-  // Fewer than SAMPLE_SIZE distinct subjects means fewer rows, deliberately:
-  // padding back out with repeats would undo the point, and the line above the
-  // table already says how many are shown.
   return picked;
 }
 
@@ -143,30 +200,48 @@ async function loadSample(c: AssuranceCase): Promise<RuleReportSampleData> {
   const report = reports.find((r) => r.ruleId === ruleId);
   if (!report?.available) throw new Error(`No generated report for ${ruleId}`);
 
-  const page: ReconPage = await fetchReconPage(report.key, {
-    limit: FETCH_SIZE,
+  const probe: ReconPage = await fetchReconPage(report.key, {
+    limit: PROBE_SIZE,
     offset: 0,
   });
 
-  const breached = page.rows.filter(
-    (row) => !CLEAN_STATUSES.has(String(row.status ?? "").toUpperCase()),
-  );
-  // If a run produced nothing but clean rows, show the page as it came rather
-  // than an empty table — the case's own count still names the breach.
-  const rows = distinctBySubject(
-    breached.length ? breached : page.rows,
-    page.columns,
-    page.keyColumns,
+  // One read per status. An unfiltered page is grouped by whatever order the
+  // scan returned — for this rule, 120 consecutive TABLE1_MISSING rows — so
+  // asking for each status by name is the only way to be sure the sample can
+  // show all of them.
+  const statuses = probe.statuses ?? [];
+  const perStatus = await Promise.allSettled(
+    statuses.map((status) =>
+      fetchReconPage(report.key, { status, limit: PER_STATUS, offset: 0 }),
+    ),
   );
 
+  const byStatus = new Map<string, Record<string, unknown>[]>();
+  perStatus.forEach((result, i) => {
+    if (result.status !== "fulfilled" || !result.value.rows.length) return;
+    byStatus.set(statuses[i], result.value.rows);
+  });
+
+  // Nothing came back per status — an older backend, or every read failed. Group
+  // the probe's own rows instead so the section still shows real records.
+  if (!byStatus.size) {
+    for (const row of probe.rows) {
+      const status = String(row.status ?? "—");
+      (byStatus.get(status) ?? byStatus.set(status, []).get(status)!).push(row);
+    }
+  }
+
+  const rows = pickSample(byStatus, probe.columns, probe.keyColumns);
+  if (!rows.length) throw new Error("The latest run produced no rows");
+
   return {
-    columns: page.columns,
+    columns: probe.columns,
     rows,
     // The case counted the breach at the moment it was raised; the report is
     // the LATEST run, whose totals may since have moved. The case's number is
     // the one this case is about.
-    breachedTotal: c.affectedCount || page.total,
-    reportKey: page.key,
+    breachedTotal: c.affectedCount || probe.total,
+    reportKey: probe.key,
     mocked: false,
   };
 }
@@ -218,19 +293,22 @@ export function RuleReportSample({ case: c }: { case: AssuranceCase }) {
   return (
     <div className="space-y-3 pt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* "of N breached" would misread the table now that it deliberately
+            includes a matched row for contrast — so the sample size and the
+            breach count are stated as the separate facts they are. */}
         <p className="text-[11px] text-muted-foreground">
-          Showing <span className="font-medium text-foreground">{shown}</span> of{" "}
-          <span className="font-medium text-foreground">
-            {data.breachedTotal.toLocaleString()}
-          </span>{" "}
-          breached records
+          <span className="font-medium text-foreground">{shown}</span> sample record
+          {shown === 1 ? "" : "s"}
           {c.ruleId ? (
             <>
               {" "}
               from <span className="font-mono text-foreground">{c.ruleId}</span>
             </>
-          ) : null}
-          .
+          ) : null}{" "}
+          · <span className="font-medium text-foreground">
+            {data.breachedTotal.toLocaleString()}
+          </span>{" "}
+          breached in this run.
         </p>
 
         {data.reportKey ? (
