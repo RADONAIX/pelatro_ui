@@ -239,6 +239,11 @@ class Settings(BaseSettings):
     recon_scheduler_enabled: bool = True
     # Rules run per tick, so one busy tick cannot saturate the pool.
     recon_scheduler_batch: int = 5
+    # Case Management service — where a breached run posts its case. Separate
+    # process, so the call is best-effort: a case service that is down must not
+    # fail a reconciliation whose results are already written.
+    cases_api_base: str = "http://127.0.0.1:8001"
+    recon_case_timeout_seconds: float = 10.0
 
     # --- ra-platform integration: Airflow REST (pipeline control) ----------
     airflow_enabled: bool = False

@@ -69,6 +69,11 @@ async def compile_and_run(
         "rule_name": rule["name"],
         "frequency": rule.get("frequency") or "Daily",
         "severity": rule.get("severity") or "medium",
+        # Carried onto the definition so the scheduler knows WHEN to run and a
+        # finished run knows whether to raise a case, without reading back the
+        # authored rule.
+        "execution_time": rule.get("executionTime") or "00:00",
+        "case_routing": rule.get("caseRouting"),
     }
     if kind == KIND_RECONCILIATION:
         plan = await compiler.compile_rule(

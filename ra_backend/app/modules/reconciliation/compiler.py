@@ -171,6 +171,8 @@ async def compile_rule(
     params: dict | None = None,
     frequency: str = "Daily",
     severity: str = "medium",
+    execution_time: str = "00:00",
+    case_routing: dict | None = None,
 ) -> ReconPlan:
     """Authored rule -> validated ReconPlan. Raises on anything unexecutable."""
     table1 = (comparison or {}).get("table1") or ""
@@ -252,6 +254,9 @@ async def compile_rule(
         report_title=rule_name.strip() or rule_id,
         frequency=frequency,
         severity=severity,
+        execution_time=execution_time,
+        breach_threshold=max(1, int((case_routing or {}).get("breachThreshold") or 1)),
+        case_routing=case_routing,
         business_columns=business_columns,
     )
     log.info(
@@ -276,6 +281,8 @@ async def compile_sequence_rule(
     params: dict | None,
     frequency: str = "Daily",
     severity: str = "medium",
+    execution_time: str = "00:00",
+    case_routing: dict | None = None,
 ) -> ReconPlan:
     """A Sequence or Duplicate rule -> a validated plan.
 
@@ -334,6 +341,9 @@ async def compile_sequence_rule(
         report_title=rule_name.strip() or rule_id,
         frequency=frequency,
         severity=severity,
+        execution_time=execution_time,
+        breach_threshold=max(1, int((case_routing or {}).get("breachThreshold") or 1)),
+        case_routing=case_routing,
         business_columns=list(sequence.SEQUENCE_COLUMNS),
     )
     log.info(

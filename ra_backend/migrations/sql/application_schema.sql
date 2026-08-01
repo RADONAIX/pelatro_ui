@@ -184,3 +184,41 @@ ALTER TABLE application_schema.recon_definition
 
 ALTER TABLE application_schema.recon_definition
     ADD COLUMN IF NOT EXISTS options jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+
+-- ---------------------------------------------------------------------------
+-- Scheduling time-of-day, and the case-raising threshold.
+--
+-- `execution_time` pairs with `frequency`: the frequency says how often, this
+-- says when. Stored as `time` rather than text so the database rejects "25:00"
+-- and the scheduler can do arithmetic with it directly.
+--
+-- `breach_threshold` is how many breached rows a run must produce before a case
+-- is raised. It only means anything when the rule's case routing asks for a
+-- case; 1 (raise on any breach) preserves what rules did before it existed.
+-- ---------------------------------------------------------------------------
+ALTER TABLE application_schema.assurance_rule
+    ADD COLUMN IF NOT EXISTS execution_time time NOT NULL DEFAULT '00:00';
+
+ALTER TABLE application_schema.assurance_rule
+    ADD COLUMN IF NOT EXISTS breach_threshold integer NOT NULL DEFAULT 1;
+
+ALTER TABLE application_schema.assurance_rule
+    DROP CONSTRAINT IF EXISTS assurance_rule_breach_threshold_positive;
+ALTER TABLE application_schema.assurance_rule
+    ADD CONSTRAINT assurance_rule_breach_threshold_positive
+    CHECK (breach_threshold >= 1);
+
+-- The compiled definition carries them too: the scheduler reads only this table
+-- when deciding what is due, and the engine reads it when deciding whether a
+-- finished run warrants a case.
+ALTER TABLE application_schema.recon_definition
+    ADD COLUMN IF NOT EXISTS execution_time time NOT NULL DEFAULT '00:00';
+
+ALTER TABLE application_schema.recon_definition
+    ADD COLUMN IF NOT EXISTS breach_threshold integer NOT NULL DEFAULT 1;
+
+-- Case routing, copied from the rule at compile time so the engine does not
+-- have to join back to assurance_rule on every finished run.
+ALTER TABLE application_schema.recon_definition
+    ADD COLUMN IF NOT EXISTS case_routing jsonb;

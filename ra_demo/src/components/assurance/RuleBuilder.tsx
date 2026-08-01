@@ -5,6 +5,7 @@ import { RULE_CATEGORIES, ruleCategories } from "@/lib/assurance/platform-metada
 import {
   CATEGORY_PARAMS,
   COMPARISON_CATEGORIES,
+  DEFAULT_EXECUTION_TIME,
   emptyCaseRouting,
   emptyComparison,
   type AttrPair,
@@ -44,6 +45,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui-kit/SearchableSelect";
+import { cn } from "@/lib/utils";
 
 type Draft = Omit<CustomRule, "id" | "appId" | "createdAt">;
 
@@ -99,6 +102,7 @@ export function RuleBuilder({
   const [modules, setModules] = useState<string[]>(app.entities);
   const [severity, setSeverity] = useState<CustomRule["severity"]>("high");
   const [frequency, setFrequency] = useState<CustomRule["frequency"]>("Daily");
+  const [executionTime, setExecutionTime] = useState(DEFAULT_EXECUTION_TIME);
   const [state, setState] = useState<CustomRule["state"]>("Draft");
   const [params, setParams] = useState<Record<string, string>>({});
   // Kept mounted across category changes so switching away and back — or
@@ -169,9 +173,25 @@ export function RuleBuilder({
   const fileLogValid =
     !isFileLogRule || (!!params.table && !!params.sequenceField);
 
+  // A frequency is always chosen, so a time is always required with it — an
+  // empty or malformed one would silently become midnight on the server.
+  const executionTimeValid = /^([01]\d|2[0-3]):[0-5]\d$/.test(executionTime);
+
+  // Only meaningful when a case is actually being raised; a rule that raises
+  // nothing is not blocked by a threshold it will never consult.
+  const breachThresholdValid =
+    !routing.raiseCase ||
+    (Number.isInteger(routing.breachThreshold) && routing.breachThreshold >= 1);
+
   // The server requires an entity, so guard the brief window before the catalog
   // answers rather than letting the save come back 422.
-  const valid = name.trim().length > 1 && !!entity && comparisonValid && fileLogValid;
+  const valid =
+    name.trim().length > 1 &&
+    !!entity &&
+    comparisonValid &&
+    fileLogValid &&
+    executionTimeValid &&
+    breachThresholdValid;
 
   // Seeds every field from the rule under edit, or back to defaults when
   // authoring. Runs on close as well as on open, so a cancelled edit leaves no
@@ -185,6 +205,7 @@ export function RuleBuilder({
     setEntity(rule?.entity ?? "");
     setSeverity(rule?.severity ?? "high");
     setFrequency(rule?.frequency ?? "Daily");
+    setExecutionTime(rule?.executionTime || DEFAULT_EXECUTION_TIME);
     setState(rule?.state ?? "Draft");
     setParams(rule?.params ?? {});
     // A rule saved before the comparison shape existed, or one of a
@@ -213,6 +234,7 @@ export function RuleBuilder({
         entity,
         severity,
         frequency,
+        executionTime,
         state,
         params,
         // Drop the half-filled other mode so a Single rule never carries a
@@ -324,8 +346,8 @@ export function RuleBuilder({
             />
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="space-y-1.5">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div >
               <Label>Entity scope</Label>
               <Select value={entity} onValueChange={setEntity}>
                 <SelectTrigger>
@@ -340,7 +362,7 @@ export function RuleBuilder({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
+            <div >
               <Label>Severity</Label>
               <Select
                 value={severity}
@@ -364,25 +386,53 @@ export function RuleBuilder({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Execution frequency</Label>
-              <Select
-                value={frequency}
-                onValueChange={(v) => setFrequency(v as CustomRule["frequency"])}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {FREQUENCIES.map((f) => (
-                    <SelectItem key={f} value={f}>
-                      {f}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Frequency and time are one setting read together — "Daily at
+                02:00" — so they share the third cell rather than the time
+                wrapping onto a row of its own. */}
+            
           </div>
+<div>
+  <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label>Execution frequency</Label>
+                <Select
+                  value={frequency}
+                  onValueChange={(v) => setFrequency(v as CustomRule["frequency"])}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FREQUENCIES.map((f) => (
+                      <SelectItem key={f} value={f}>
+                        {f}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="rule-exec-time">Execution time</Label>
+                <Input
+                  id="rule-exec-time"
+                  type="time"
+                  step={60}
+                  value={executionTime}
+                  onChange={(e) => setExecutionTime(e.target.value)}
+                  aria-invalid={!executionTimeValid}
+                  className={cn(!executionTimeValid && "border-destructive")}
+                />
+              </div>
+            </div>
+</div>
+          {/* Real-time polls continuously, so a clock time would be a setting
+              that does nothing — say so rather than leaving the field looking
+              effective. */}
+          {frequency === "Real-time" && (
+            <p className="-mt-1 text-xs text-muted-foreground">
+              Real-time rules poll continuously; execution time is not used.
+            </p>
+          )}
 
           {isComparison && (
             <ComparisonEditor assurance={app.id} value={comparison} onChange={setComparison} />
@@ -711,31 +761,31 @@ function TableSelect({
   value: string;
   onChange: (v: string) => void;
 }) {
-  const grouped = tables.reduce<Record<string, AssuranceTable[]>>((groups, table) => {
-    (groups[table.database_name] ??= []).push(table);
-    return groups;
-  }, {});
+  // Grouping by database is kept from the Select this replaced — the same
+  // schema name exists in more than one database, so the heading is what tells
+  // two identically-named tables apart.
+  const options = useMemo(
+    () =>
+      tables.map((table) => ({
+        value: table.id,
+        label: table.label,
+        group: table.database_name,
+        // Lets a search hit the schema and the database, not just the label.
+        keywords: `${table.database_name} ${table.schema_name} ${table.table_name}`,
+      })),
+    [tables],
+  );
 
   return (
-    <Select value={value} onValueChange={onChange} disabled={loading || tables.length === 0}>
-      <SelectTrigger>
-        <SelectValue placeholder={loading ? "Loading tables…" : "Select a table…"} />
-      </SelectTrigger>
-      <SelectContent>
-        {Object.entries(grouped).map(([database, databaseTables]) => (
-          <SelectGroup key={database}>
-            <SelectLabel className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              {database}
-            </SelectLabel>
-            {databaseTables.map((table) => (
-              <SelectItem key={table.id} value={table.id}>
-                {table.label}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        ))}
-      </SelectContent>
-    </Select>
+    <SearchableSelect
+      options={options}
+      value={value}
+      onChange={onChange}
+      disabled={loading || tables.length === 0}
+      placeholder={loading ? "Loading tables…" : "Select a table…"}
+      searchPlaceholder="Search tables…"
+      emptyLabel="No tables found"
+    />
   );
 }
 
@@ -750,27 +800,26 @@ function ColumnSelect({
   value: string;
   onChange: (v: string) => void;
 }) {
+  // Columns arrive only after a table is chosen, so the empty state stays
+  // "Select a table first" rather than "no results".
+  const options = useMemo(() => columns.map((c) => ({ value: c, label: c })), [columns]);
+
   return (
-    <Select value={value} onValueChange={onChange} disabled={loading || columns.length === 0}>
-      <SelectTrigger>
-        <SelectValue
-          placeholder={
-            loading
-              ? "Loading attributes…"
-              : columns.length
-                ? "Select an attribute…"
-                : "Select a table first"
-          }
-        />
-      </SelectTrigger>
-      <SelectContent>
-        {columns.map((c) => (
-          <SelectItem key={c} value={c}>
-            {c}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <SearchableSelect
+      options={options}
+      value={value}
+      onChange={onChange}
+      disabled={loading || columns.length === 0}
+      placeholder={
+        loading
+          ? "Loading attributes…"
+          : columns.length
+            ? "Select an attribute…"
+            : "Select a table first"
+      }
+      searchPlaceholder="Search attributes…"
+      emptyLabel="No attributes found"
+    />
   );
 }
 
@@ -791,6 +840,10 @@ function CaseRoutingEditor({
   onChange: (next: CaseRouting) => void;
 }>) {
   const set = (patch: Partial<CaseRouting>) => onChange({ ...value, ...patch });
+
+  const thresholdValid =
+    Number.isInteger(value.breachThreshold) && value.breachThreshold >= 1;
+  const displayThreshold = thresholdValid ? value.breachThreshold : 1;
 
   return (
     <div className="space-y-3 rounded-md border border-border p-3">
@@ -827,11 +880,38 @@ function CaseRoutingEditor({
             placeholder="Leave blank to raise unassigned"
           />
         </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="case-threshold">Breach threshold</Label>
+          <Input
+            id="case-threshold"
+            type="number"
+            min={1}
+            step={1}
+            value={Number.isFinite(value.breachThreshold) ? value.breachThreshold : ""}
+            onChange={(e) => {
+              // Kept as a number so the parent's Number.isInteger check is
+              // meaningful; an empty box parses to NaN, which fails validation
+              // and shows the error rather than silently becoming 1.
+              const next = e.target.value === "" ? Number.NaN : Number(e.target.value);
+              set({ breachThreshold: next });
+            }}
+            aria-invalid={!thresholdValid}
+            className={cn(!thresholdValid && "border-destructive")}
+          />
+        </div>
       </div>
 
+      {!thresholdValid && (
+        <p className="text-[11px] text-destructive">
+          Breach threshold must be a whole number of 1 or more.
+        </p>
+      )}
+
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Assurance, module and issue type come from this rule and its app. Nothing evaluates the rule
-        yet — raise a case from the Controls table to see it end to end.
+        A case is raised only when a run produces at least {displayThreshold} breached row
+        {displayThreshold === 1 ? "" : "s"} — a mismatch, a record missing from either side, or a
+        sequence gap. Assurance, module and issue type come from this rule and its app.
       </p>
     </div>
   );
@@ -909,26 +989,19 @@ function FileLogEditor({
 
       <div className="space-y-1.5">
         <Label>File log</Label>
-        <Select
+        <SearchableSelect
+          options={tables.map((t) => ({ value: t.id, label: t.label }))}
           value={table}
-          onValueChange={(v) =>
+          onChange={(v) =>
             // Changing the log invalidates the attributes chosen from the old
             // one, so they are cleared rather than left pointing at columns
             // that may not exist here.
             onChange({ ...value, table: v, sequenceField: "", partitionBy: "" })
           }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Pick an AIR or SDP file log" />
-          </SelectTrigger>
-          <SelectContent>
-            {tables.map((t) => (
-              <SelectItem key={t.id} value={t.id}>
-                {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          placeholder="Pick an AIR or SDP file log"
+          searchPlaceholder="Search file logs…"
+          emptyLabel="No file logs found"
+        />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -936,51 +1009,33 @@ function FileLogEditor({
           <Label>
             {category === "Duplicate" ? "Attribute to check" : "Sequence attribute"}
           </Label>
-          <Select
+          <SearchableSelect
+            options={columns.map((c) => ({ value: c, label: c }))}
             value={value.sequenceField ?? ""}
-            onValueChange={(v) => set("sequenceField", v)}
+            onChange={(v) => set("sequenceField", v)}
             disabled={!table || loadingColumns}
-          >
-            <SelectTrigger>
-              <SelectValue
-                placeholder={
-                  !table
-                    ? "Pick a file log first"
-                    : loadingColumns
-                      ? "Loading…"
-                      : "e.g. filename"
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {columns.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            placeholder={
+              !table ? "Pick a file log first" : loadingColumns ? "Loading…" : "e.g. filename"
+            }
+            searchPlaceholder="Search attributes…"
+            emptyLabel="No attributes found"
+          />
         </div>
 
         <div className="space-y-1.5">
           <Label>Partition by (optional)</Label>
-          <Select
+          <SearchableSelect
+            options={[
+              { value: NONE_VALUE, label: "Derive from the value itself" },
+              ...columns.map((c) => ({ value: c, label: c })),
+            ]}
             value={value.partitionBy || NONE_VALUE}
-            onValueChange={(v) => set("partitionBy", v === NONE_VALUE ? "" : v)}
+            onChange={(v) => set("partitionBy", v === NONE_VALUE ? "" : v)}
             disabled={!table || loadingColumns}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Derive from the value itself" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE_VALUE}>Derive from the value itself</SelectItem>
-              {columns.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            placeholder="Derive from the value itself"
+            searchPlaceholder="Search attributes…"
+            emptyLabel="No attributes found"
+          />
         </div>
       </div>
 

@@ -67,12 +67,27 @@ export type CaseRouting = {
   priority: "low" | "medium" | "high" | "critical";
   /** Free text, "" = unassigned. Matches every other assignment control here. */
   owner: string;
+  /**
+   * How many breached rows a run must produce before a case is worth raising.
+   *
+   * Lives on the routing block rather than beside the rule's own fields because
+   * it is meaningless without `raiseCase` — it is the threshold FOR the case,
+   * not a property of the rule. Minimum 1: a threshold of 0 would raise a case
+   * on a clean run.
+   */
+  breachThreshold: number;
 };
+
+export const DEFAULT_BREACH_THRESHOLD = 1;
+
+/** Midnight — the spec's default, and what the database column defaults to. */
+export const DEFAULT_EXECUTION_TIME = "00:00";
 
 export const emptyCaseRouting = (severity: CustomRule["severity"]): CaseRouting => ({
   raiseCase: false,
   priority: severity,
   owner: "",
+  breachThreshold: DEFAULT_BREACH_THRESHOLD,
 });
 
 export type CustomRule = {
@@ -84,6 +99,12 @@ export type CustomRule = {
   entity: string;
   severity: "critical" | "high" | "medium";
   frequency: "Real-time" | "Hourly" | "Daily" | "Cycle";
+  /**
+   * Local time of day the rule runs, "HH:mm". Pairs with `frequency`: the
+   * frequency says how often, this says when. An Active rule's FIRST run is at
+   * this time — activation does not itself trigger one.
+   */
+  executionTime: string;
   state: "Draft" | "Active";
   params: Record<string, string>;
   /**

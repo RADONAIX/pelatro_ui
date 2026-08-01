@@ -28,7 +28,7 @@ from app.core.config import settings
 from app.core.errors import ConflictError, UpstreamUnavailableError
 from app.core.logging import get_logger
 from app.integrations import pg_engines
-from app.modules.reconciliation import repository, sql_builder
+from app.modules.reconciliation import cases, repository, sql_builder
 from app.modules.reconciliation.plan import SYSTEM_COLUMNS, ReconPlan
 
 log = get_logger("recon.engine")
@@ -171,7 +171,10 @@ async def execute(
             execution_id=execution_id, counts=counts, duration_ms=duration_ms
         )
         await repository.mark_ready(
-            plan.rule_id, execution_id=execution_id, frequency=plan.frequency
+            plan.rule_id,
+            execution_id=execution_id,
+            frequency=plan.frequency,
+            execution_time=plan.execution_time,
         )
         log.info(
             "recon_execution_succeeded",
@@ -180,11 +183,20 @@ async def execute(
             duration_ms=duration_ms,
             **{k.lower(): v for k, v in counts.items()},
         )
+
+        # After the results are published, never before: a case that points at
+        # an execution the report cannot show yet would be a lie. Best-effort —
+        # see cases.raise_case_if_breached.
+        case = await cases.raise_case_if_breached(
+            plan, counts, execution_id=execution_id
+        )
+
         return {
             "executionId": execution_id,
             "status": "Succeeded",
             "durationMs": duration_ms,
             "counts": counts,
+            **({"case": case} if case is not None else {}),
         }
     except ConflictError:
         # Another run holds the lock. That is not a failure OF the rule, so the
@@ -204,7 +216,10 @@ async def execute(
             execution_id=execution_id, error=message, duration_ms=duration_ms
         )
         await repository.mark_failed(
-            plan.rule_id, error=message, frequency=plan.frequency
+            plan.rule_id,
+            error=message,
+            frequency=plan.frequency,
+            execution_time=plan.execution_time,
         )
         log.warning(
             "recon_execution_failed",

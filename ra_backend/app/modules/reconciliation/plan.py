@@ -164,6 +164,15 @@ class ReconPlan:
     frequency: str = "Daily"
     severity: str = "medium"
 
+    #: Local time of day this rule runs, "HH:mm". The frequency says how often,
+    #: this says when.
+    execution_time: str = "00:00"
+    #: Breached rows a run must produce before a case is raised.
+    breach_threshold: int = 1
+    #: The rule's case routing, copied at compile time so a finished run can
+    #: decide about a case without joining back to assurance_rule.
+    case_routing: dict | None = None
+
     #: Populated by the SQL generator; carried so the engine and the metadata
     #: repository store exactly what ran.
     ddl: str = ""

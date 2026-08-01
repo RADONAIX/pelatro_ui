@@ -137,18 +137,18 @@ export const APPS: AppMetadata[] = [
     entities: ["Usage Events", "Subscriber", "MSC", "CDR", "Mediation", "Rating", "Billing"],
     ruleTypes: ["Completeness", "Aggregation", "Threshold", "Reconciliation"],
     ruleLibrary: [
-      { name: "Missing Usage Data Files", category: "Completeness", severity: "critical" },
-      { name: "Incorrect Duration / Volume Normalization", category: "Calculation", severity: "high" },
-      { name: "Incorrect Timestamp / Time Zone", category: "Temporal", severity: "high" },
-      { name: "Incorrect A/B Number Format", category: "Pattern Matching", severity: "medium" },
-      { name: "Customer Not Identified Correctly", category: "Referential Integrity", severity: "critical" },
-      {
-        name: "Usage Loss During High Utilization",
-        category: "Threshold",
-        categories: ["Threshold", "Statistical"],
-        severity: "critical",
-      },
-      { name: "Retail vs Interconnect Record Mismatch", category: "Comparison", severity: "high" },
+      // { name: "Missing Usage Data Files", category: "Completeness", severity: "critical" },
+      // { name: "Incorrect Duration / Volume Normalization", category: "Calculation", severity: "high" },
+      // { name: "Incorrect Timestamp / Time Zone", category: "Temporal", severity: "high" },
+      // { name: "Incorrect A/B Number Format", category: "Pattern Matching", severity: "medium" },
+      // { name: "Customer Not Identified Correctly", category: "Referential Integrity", severity: "critical" },
+      // {
+      //   name: "Usage Loss During High Utilization",
+      //   category: "Threshold",
+      //   categories: ["Threshold", "Statistical"],
+      //   severity: "critical",
+      // },
+      // { name: "Retail vs Interconnect Record Mismatch", category: "Comparison", severity: "high" },
     ],
     dashboards: ["Usage Leakage", "Usage KPIs"],
     kpis: [
@@ -187,7 +187,7 @@ export const APPS: AppMetadata[] = [
     entities: ["Invoice", "Bill Cycle", "Account", "Tax", "Payment"],
     ruleTypes: ["Calculation", "Aggregation", "Duplicate", "Comparison", "Reconciliation"],
     ruleLibrary: [
-      { name: "Invoice Total ≠ Sum of Rated Charges", category: "Aggregation", severity: "critical" },
+      // { name: "Invoice Total ≠ Sum of Rated Charges", category: "Aggregation", severity: "critical" },
     ],
     dashboards: ["Billing Leakage", "Billing Accuracy"],
     kpis: [
@@ -226,21 +226,21 @@ export const APPS: AppMetadata[] = [
     entities: ["Rated Event", "Tariff", "Price Plan", "Product", "Subscriber"],
     ruleTypes: ["Calculation", "Comparison", "Threshold", "Pattern Matching"],
     ruleLibrary: [
-      {
-        name: "Expected Charge vs Actual Charge",
-        category: "Calculation",
-        categories: ["Calculation", "Comparison"],
-        severity: "critical",
-      },
-      {
-        name: "Zero Rated / Default Rated Events",
-        category: "Existence",
-        categories: ["Existence", "Comparison"],
-        severity: "high",
-      },
-      { name: "Bundle / Discount Applied Incorrectly", category: "Graph Relationship", severity: "high" },
-      { name: "Account Not Debited for Charged Event", category: "Reconciliation", severity: "critical" },
-      { name: "Customer Charged More Than Once", category: "Duplicate", severity: "critical" },
+      // {
+      //   name: "Expected Charge vs Actual Charge",
+      //   category: "Calculation",
+      //   categories: ["Calculation", "Comparison"],
+      //   severity: "critical",
+      // },
+      // {
+      //   name: "Zero Rated / Default Rated Events",
+      //   category: "Existence",
+      //   categories: ["Existence", "Comparison"],
+      //   severity: "high",
+      // },
+      // { name: "Bundle / Discount Applied Incorrectly", category: "Graph Relationship", severity: "high" },
+      // { name: "Account Not Debited for Charged Event", category: "Reconciliation", severity: "critical" },
+      // { name: "Customer Charged More Than Once", category: "Duplicate", severity: "critical" },
     ],
     dashboards: ["Rating Leakage", "Tariff Accuracy"],
     kpis: [
@@ -279,9 +279,9 @@ export const APPS: AppMetadata[] = [
     entities: ["Session", "Balance", "OCS Account", "Reservation", "Top-up"],
     ruleTypes: ["Reconciliation", "Sequence", "Threshold", "Temporal"],
     ruleLibrary: [
-      { name: "Reconciliation between AIR Raw vs AIR Processed", category: "Reconciliation", severity: "critical" },
-      { name: "Duplicate Usage Records", category: "Duplicate", severity: "high" },
-      { name: "Missing File Sequence", category: "Sequence", severity: "critical" },
+      // { name: "Reconciliation between AIR Raw vs AIR Processed", category: "Reconciliation", severity: "critical" },
+      // { name: "Duplicate Usage Records", category: "Duplicate", severity: "high" },
+      // { name: "Missing File Sequence", category: "Sequence", severity: "critical" },
     ],
     dashboards: ["Charging Leakage", "Balance Integrity"],
     kpis: [
@@ -320,11 +320,11 @@ export const APPS: AppMetadata[] = [
     entities: ["Payment", "Receipt", "Dunning Case", "Account", "Bank File"],
     ruleTypes: ["Reconciliation", "Duplicate", "Temporal", "Comparison"],
     ruleLibrary: [
-      { name: "Unallocated Payment", category: "Existence", severity: "critical" },
-      { name: "Bank File Mismatch", category: "Reconciliation", severity: "critical" },
-      { name: "Duplicate Receipt", category: "Duplicate", severity: "high" },
-      { name: "Dunning Not Triggered", category: "Temporal", severity: "medium" },
-      { name: "Write-off Deviation", category: "Comparison", severity: "medium" },
+      // { name: "Unallocated Payment", category: "Existence", severity: "critical" },
+      // { name: "Bank File Mismatch", category: "Reconciliation", severity: "critical" },
+      // { name: "Duplicate Receipt", category: "Duplicate", severity: "high" },
+      // { name: "Dunning Not Triggered", category: "Temporal", severity: "medium" },
+      // { name: "Write-off Deviation", category: "Comparison", severity: "medium" },
     ],
     dashboards: ["Collection Leakage", "Dunning Effectiveness"],
     kpis: [
@@ -363,19 +363,19 @@ export const APPS: AppMetadata[] = [
     entities: ["Partner", "Settlement", "Interconnect CDR", "Agreement", "Invoice"],
     ruleTypes: ["Reconciliation", "Calculation", "Comparison", "Aggregation"],
     ruleLibrary: [
-      {
-        name: "Partner Settlement Invoice Volume Mismatch",
-        category: "Reconciliation",
-        categories: ["Reconciliation", "Comparison"],
-        severity: "critical",
-      },
-      { name: "Partner Traffic Routed to Wrong Partner", category: "Graph Relationship", severity: "high" },
-      {
-        name: "Partner Invoice Pricing Incorrect",
-        category: "Calculation",
-        categories: ["Calculation", "Comparison"],
-        severity: "high",
-      },
+      // {
+      //   name: "Partner Settlement Invoice Volume Mismatch",
+      //   category: "Reconciliation",
+      //   categories: ["Reconciliation", "Comparison"],
+      //   severity: "critical",
+      // },
+      // { name: "Partner Traffic Routed to Wrong Partner", category: "Graph Relationship", severity: "high" },
+      // {
+      //   name: "Partner Invoice Pricing Incorrect",
+      //   category: "Calculation",
+      //   categories: ["Calculation", "Comparison"],
+      //   severity: "high",
+      // },
     ],
     dashboards: ["Partner Leakage", "Settlement Accuracy"],
     kpis: [
@@ -414,11 +414,11 @@ export const APPS: AppMetadata[] = [
     entities: ["Network Element", "Feed", "Alarm", "Config Item", "Site"],
     ruleTypes: ["Completeness", "Threshold", "Temporal", "Graph Relationship"],
     ruleLibrary: [
-      { name: "Feed Not Received", category: "Completeness", severity: "critical" },
-      { name: "Element Silent", category: "Temporal", severity: "critical" },
-      { name: "Config Drift", category: "Comparison", severity: "high" },
-      { name: "Topology Break", category: "Graph Relationship", severity: "high" },
-      { name: "Alarm Storm", category: "Statistical", severity: "medium" },
+      // { name: "Feed Not Received", category: "Completeness", severity: "critical" },
+      // { name: "Element Silent", category: "Temporal", severity: "critical" },
+      // { name: "Config Drift", category: "Comparison", severity: "high" },
+      // { name: "Topology Break", category: "Graph Relationship", severity: "high" },
+      // { name: "Alarm Storm", category: "Statistical", severity: "medium" },
     ],
     dashboards: ["Feed Health", "Element Coverage"],
     kpis: [
@@ -457,11 +457,11 @@ export const APPS: AppMetadata[] = [
     entities: ["Migration Batch", "Source Record", "Target Record", "Subscriber", "Contract"],
     ruleTypes: ["Reconciliation", "Comparison", "Completeness", "Referential Integrity"],
     ruleLibrary: [
-      { name: "Record Count Mismatch", category: "Reconciliation", severity: "critical" },
-      { name: "Field Value Drift", category: "Comparison", severity: "high" },
-      { name: "Orphan Target Record", category: "Referential Integrity", severity: "high" },
-      { name: "Batch Not Loaded", category: "Completeness", severity: "critical" },
-      { name: "Post-migration Anomaly", category: "ML Prediction", severity: "medium" },
+      // { name: "Record Count Mismatch", category: "Reconciliation", severity: "critical" },
+      // { name: "Field Value Drift", category: "Comparison", severity: "high" },
+      // { name: "Orphan Target Record", category: "Referential Integrity", severity: "high" },
+      // { name: "Batch Not Loaded", category: "Completeness", severity: "critical" },
+      // { name: "Post-migration Anomaly", category: "ML Prediction", severity: "medium" },
     ],
     dashboards: ["Migration Fidelity", "Cutover Readiness"],
     kpis: [

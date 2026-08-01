@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import time as dt_time
 from typing import Any
 
 from app.core.config import settings
@@ -31,6 +32,8 @@ _EDITABLE = (
     "entity",
     "severity",
     "frequency",
+    "execution_time",
+    "breach_threshold",
     "state",
     "params",
     "case_routing",
@@ -45,6 +48,20 @@ _PREFIX_RE = re.compile(r"^[A-Z]{2,4}$")
 # Authored rules are numbered from here so they never collide with the
 # provisioned control range (BA001–BA180 and friends).
 _FIRST_SEQUENCE = 901
+
+
+def _to_time(value: str) -> dt_time:
+    """"HH:mm" -> datetime.time.
+
+    asyncpg binds a `time` column from a time object, not a string — passing the
+    string through fails the INSERT with "'str' object has no attribute 'hour'".
+    The value is already pattern-validated by the schema; this only converts.
+    """
+    hour, _, minute = str(value).partition(":")
+    try:
+        return dt_time(int(hour), int(minute[:2]))
+    except ValueError:
+        return dt_time(0, 0)
 
 
 def _table() -> str:
@@ -63,6 +80,8 @@ def _row_to_api(row: dict[str, Any]) -> dict[str, Any]:
         "entity": row["entity"],
         "severity": row["severity"],
         "frequency": row["frequency"],
+        # `time` comes back as a datetime.time; the wire shape is "HH:mm".
+        "executionTime": row["execution_time"].strftime("%H:%M"),
         "state": row["state"],
         "params": row["params"] or {},
         "caseRouting": row["case_routing"],
@@ -79,6 +98,10 @@ def _payload_to_params(payload: Any) -> dict[str, Any]:
     data = payload.model_dump()
     case_routing = data.get("caseRouting")
     comparison = data.get("comparison")
+    # The threshold is stored in its own column as well as inside case_routing:
+    # the engine filters on it after a run, and a jsonb lookup would not use an
+    # index. The routing block stays the source the UI round-trips.
+    breach_threshold = int((case_routing or {}).get("breachThreshold") or 1)
     return {
         "name": data["name"].strip(),
         "description": data["description"],
@@ -86,6 +109,8 @@ def _payload_to_params(payload: Any) -> dict[str, Any]:
         "entity": data["entity"],
         "severity": data["severity"],
         "frequency": data["frequency"],
+        "execution_time": _to_time(data["executionTime"]),
+        "breach_threshold": max(1, breach_threshold),
         "state": data["state"],
         "params": json.dumps(data.get("params") or {}),
         "case_routing": json.dumps(case_routing) if case_routing is not None else None,

@@ -20,6 +20,10 @@ class CaseRouting(BaseModel):
     raiseCase: bool = False
     priority: Literal["low", "medium", "high", "critical"] = "medium"
     owner: str = ""
+    #: Breached rows a run must produce before a case is raised. Only consulted
+    #: when raiseCase is true; 1 means "raise on any breach", which is what
+    #: rules did before this existed.
+    breachThreshold: int = Field(default=1, ge=1)
 
 
 class AttrPair(BaseModel):
@@ -42,6 +46,9 @@ class RuleBase(BaseModel):
     entity: str = Field(min_length=1, max_length=128)
     severity: Severity = "medium"
     frequency: Frequency = "Daily"
+    #: Local time of day the rule runs, "HH:mm". Validated by pattern rather
+    #: than a time type so the wire shape stays the string the UI edits.
+    executionTime: str = Field(default="00:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     state: State = "Draft"
     params: dict[str, Any] = Field(default_factory=dict)
     caseRouting: CaseRouting | None = None

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from datetime import time as dt_time
 from typing import Any
 
 from app.core.config import settings
@@ -30,7 +31,8 @@ _DEFINITION_COLUMNS = """
     join_keys, metrics, tolerance_pct, frequency, severity,
     output_schema, output_table, generated_ddl, generated_sql,
     report_key, report_title, status, last_error,
-    last_run_at, next_run_at, last_execution_id, kind, options, created_at, updated_at
+    last_run_at, next_run_at, last_execution_id, kind, options,
+    execution_time, breach_threshold, case_routing, created_at, updated_at
 """
 
 # How often each frequency repeats. "Real-time" is deliberately the tightest
@@ -43,9 +45,66 @@ _INTERVALS: dict[str, timedelta] = {
     "Cycle": timedelta(days=30),
 }
 
+#: Frequencies that run AT a time of day rather than on a rolling interval.
+#: An hourly rule keeps the minutes from execution_time; a real-time one is a
+#: poll and ignores the clock entirely.
+_ANCHORED = {"Daily", "Weekly", "Cycle"}
 
-def next_run_after(frequency: str, *, since: datetime | None = None) -> datetime:
+
+def _parse_hhmm(value: str | dt_time | None) -> tuple[int, int]:
+    """"HH:mm" (or a datetime.time, which is what the `time` column returns).
+
+    Falls back to midnight rather than raising: a malformed value should not
+    stop a rule from being scheduled at all, and the column's own default is
+    already 00:00.
+    """
+    if isinstance(value, dt_time):
+        return value.hour, value.minute
+    try:
+        hour, minute = str(value).split(":")[:2]
+        return int(hour), int(minute)
+    except (ValueError, AttributeError):
+        return 0, 0
+
+
+def _format_hhmm(value: str | dt_time | None) -> str:
+    """The inverse of _parse_hhmm — back to the "HH:mm" the plan carries."""
+    hour, minute = _parse_hhmm(value)
+    return f"{hour:02d}:{minute:02d}"
+
+
+def next_run_after(
+    frequency: str,
+    *,
+    since: datetime | None = None,
+    execution_time: str | Any = "00:00",
+) -> datetime:
+    """When this rule should next run.
+
+    For a frequency with a time of day, this is the NEXT occurrence of that
+    clock time strictly after `since` — so activating a Daily 02:00 rule at
+    14:00 schedules 02:00 tomorrow, not 14:00 tomorrow, and never fires
+    immediately on activation.
+
+    Hourly keeps the minute past the hour. Real-time is a rolling poll and has
+    no clock time to honour.
+    """
     base = since or datetime.now(timezone.utc)
+    hour, minute = _parse_hhmm(execution_time)
+
+    if frequency in _ANCHORED:
+        candidate = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        # Strictly after: at exactly the boundary, the next one is a period away.
+        while candidate <= base:
+            candidate += _INTERVALS.get(frequency, _INTERVALS["Daily"])
+        return candidate
+
+    if frequency == "Hourly":
+        candidate = base.replace(minute=minute, second=0, microsecond=0)
+        while candidate <= base:
+            candidate += _INTERVALS["Hourly"]
+        return candidate
+
     return base + _INTERVALS.get(frequency, _INTERVALS["Daily"])
 
 
@@ -79,7 +138,8 @@ async def upsert_definition(plan: ReconPlan) -> dict[str, Any]:
             left_schema, left_table, right_schema, right_table,
             join_keys, metrics, tolerance_pct, frequency, severity,
             output_schema, output_table, generated_ddl, generated_sql,
-            report_key, report_title, status, next_run_at, kind, options
+            report_key, report_title, status, next_run_at, kind, options,
+            execution_time, breach_threshold, case_routing
         ) VALUES (
             :rule_id, :assurance_id, :source_database,
             :left_schema, :left_table, :right_schema, :right_table,
@@ -87,7 +147,8 @@ async def upsert_definition(plan: ReconPlan) -> dict[str, Any]:
             :frequency, :severity,
             :output_schema, :output_table, :generated_ddl, :generated_sql,
             :report_key, :report_title, 'Pending', :next_run_at,
-            :kind, CAST(:options AS jsonb)
+            :kind, CAST(:options AS jsonb),
+            :execution_time, :breach_threshold, CAST(:case_routing AS jsonb)
         )
         ON CONFLICT (rule_id) DO UPDATE SET
             assurance_id = EXCLUDED.assurance_id,
@@ -108,7 +169,10 @@ async def upsert_definition(plan: ReconPlan) -> dict[str, Any]:
             report_title = EXCLUDED.report_title,
             next_run_at = EXCLUDED.next_run_at,
             kind = EXCLUDED.kind,
-            options = EXCLUDED.options
+            options = EXCLUDED.options,
+            execution_time = EXCLUDED.execution_time,
+            breach_threshold = EXCLUDED.breach_threshold,
+            case_routing = EXCLUDED.case_routing
         RETURNING {_DEFINITION_COLUMNS}
         """,
         {
@@ -154,7 +218,14 @@ async def upsert_definition(plan: ReconPlan) -> dict[str, Any]:
             "generated_sql": plan.insert_sql,
             "report_key": plan.report_key,
             "report_title": plan.report_title,
-            "next_run_at": next_run_after(plan.frequency),
+            "next_run_at": next_run_after(
+                plan.frequency, execution_time=plan.execution_time
+            ),
+            # Bound as a time object; see _parse_hhmm for why the plan carries
+            # the string form.
+            "execution_time": dt_time(*_parse_hhmm(plan.execution_time)),
+            "breach_threshold": max(1, plan.breach_threshold),
+            "case_routing": json.dumps(plan.case_routing) if plan.case_routing else None,
             "kind": plan.kind,
             "options": json.dumps(plan.sequence.as_dict() if plan.sequence else {}),
         },
@@ -204,7 +275,9 @@ async def list_due(*, limit: int = 20) -> list[dict[str, Any]]:
     )
 
 
-async def mark_ready(rule_id: str, *, execution_id: str, frequency: str) -> None:
+async def mark_ready(
+    rule_id: str, *, execution_id: str, frequency: str, execution_time: str = "00:00"
+) -> None:
     await _execute(
         f"""
         UPDATE {_table()}
@@ -215,12 +288,14 @@ async def mark_ready(rule_id: str, *, execution_id: str, frequency: str) -> None
         {
             "rule_id": rule_id,
             "execution_id": execution_id,
-            "next_run_at": next_run_after(frequency),
+            "next_run_at": next_run_after(frequency, execution_time=execution_time),
         },
     )
 
 
-async def mark_failed(rule_id: str, *, error: str, frequency: str) -> None:
+async def mark_failed(
+    rule_id: str, *, error: str, frequency: str, execution_time: str = "00:00"
+) -> None:
     """A failed run still advances next_run_at: leaving it in the past would
     make the scheduler spin on the same broken rule every tick."""
     await _execute(
@@ -233,7 +308,7 @@ async def mark_failed(rule_id: str, *, error: str, frequency: str) -> None:
         {
             "rule_id": rule_id,
             "error": error[:4000],
-            "next_run_at": next_run_after(frequency),
+            "next_run_at": next_run_after(frequency, execution_time=execution_time),
         },
     )
 
@@ -402,6 +477,9 @@ def definition_to_plan(row: dict[str, Any]) -> ReconPlan:
         report_title=row["report_title"],
         frequency=row["frequency"],
         severity=row["severity"],
+        execution_time=_format_hhmm(row.get("execution_time")),
+        breach_threshold=int(row.get("breach_threshold") or 1),
+        case_routing=row.get("case_routing"),
         ddl=row["generated_ddl"],
         insert_sql=row["generated_sql"],
         business_columns=business,
