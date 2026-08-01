@@ -8,6 +8,7 @@ from app.modules.analytics.router import router as analytics_router
 from app.modules.assurance.router import router as assurance_router
 from app.modules.assurance_dashboard.router import router as assurance_dashboard_router
 from app.modules.assurance_rules.router import router as assurance_rules_router
+from app.modules.enterprise.router import router as enterprise_router
 from app.modules.exports.router import router as exports_router
 from app.modules.identity.router import router as identity_router
 from app.modules.meta.router import router as meta_router
@@ -23,6 +24,7 @@ api_router.include_router(operations_router)
 api_router.include_router(assurance_router)
 api_router.include_router(assurance_rules_router)
 api_router.include_router(assurance_dashboard_router)
+api_router.include_router(enterprise_router)
 api_router.include_router(reconciliation_router)
 api_router.include_router(reporting_router)
 api_router.include_router(exports_router)

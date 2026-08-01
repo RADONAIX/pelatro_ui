@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { createContext, useContext } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -6,7 +7,6 @@ import {
   BadgePercent,
   Briefcase,
   Calendar,
-  ChevronDown,
   ChevronRight,
   Clock,
   Copy,
@@ -23,11 +23,8 @@ import {
   Lightbulb,
   MessageSquare,
   Phone,
-  Play,
-  PlusCircle,
   RefreshCw,
   Search,
-  Settings2,
   ShieldCheck,
   Siren,
   Sparkles,
@@ -54,17 +51,9 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Delta, LinkAction, Panel } from "@/components/dashboard/Panel";
 
 import {
-  aiActions,
-  controlHealth,
-  dataHealth,
-  leakageBreakdown,
-  leakageDrivers,
-  postpaidFlow,
-  postpaidTech,
-  prepaidFlow,
-  prepaidTech,
-  revenueTrend,
-} from "@/components/dashboard/data";
+  useEnterpriseDashboard,
+  type DashboardData,
+} from "@/lib/enterpriseDashboard";
 
 import { ASSURANCE_APPS } from "@/lib/assuranceScope";
 
@@ -84,7 +73,23 @@ export const Route = createFileRoute("/dashboard")({
   component: EnterpriseDashboardPage,
 });
 
+// The live payload, or the bundled sample while it loads / if it fails. Panels
+// read this rather than importing the sample directly, so none of them knows
+// which of the two it is rendering.
+const DashboardCtx = createContext<DashboardData | null>(null);
 
+const useDash = (): DashboardData => {
+  const value = useContext(DashboardCtx);
+  if (!value)
+    throw new Error("Dashboard panels must render inside DashboardCtx");
+  return value;
+};
+
+/**
+ * Icon and tint per KPI, in the order the server returns them. The values come
+ * from the API; only the presentation lives here, so a KPI whose figure moves
+ * does not need a change in this file.
+ */
 const kpis = [
   {
     label: "Total Revenue (MTD)",
@@ -142,14 +147,7 @@ const techIcons = {
   sms: MessageSquare,
 } as const;
 
-const flowIcons = [
-  Layers,
-  Layers,
-  Activity,
-  Gauge,
-  FileText,
-  FileCheck2,
-];
+const flowIcons = [Layers, Layers, Activity, Gauge, FileText, FileCheck2];
 
 const healthIcons = [
   FileInput,
@@ -161,69 +159,67 @@ const healthIcons = [
 ];
 
 function EnterpriseDashboardPage() {
+  const data = useEnterpriseDashboard();
+
   return (
-    <AppShell>
-      <div className="-m-4 min-h-screen bg-muted/25 p-4 sm:-m-6 sm:p-6">
-        <div className="space-y-4">
-          <PageHeader
-            title="Enterprise Dashboard"
-            description={`High-level view across all ${ASSURANCE_APPS.length} assurance applications. This dashboard is independent of the assurance scope selected in the header.`}
-            actions={<DashboardFilters />}
-          />
+    <DashboardCtx.Provider value={data}>
+      <AppShell>
+        <div className="-m-4 min-h-screen bg-muted/25 p-4 sm:-m-6 sm:p-6">
+          <div className="space-y-4">
+            <PageHeader
+              title="Enterprise Dashboard"
+              description={`High-level view across all ${ASSURANCE_APPS.length} assurance applications. This dashboard is independent of the assurance scope selected in the header.`}
+              actions={<DashboardFilters />}
+            />
 
-          <KpiSection />
-          <OverviewSection />
-          <AssuranceSection />
+            {!data.loading && !data.live && (
+              <div className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-2.5 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                Showing sample figures — the assurance data service did not
+                answer{data.error ? `: ${data.error}` : "."}
+              </div>
+            )}
 
-          <p className="pb-3 pt-1 text-center text-[11px] text-muted-foreground">
-            All amounts are in USD &nbsp;|&nbsp; MTD – Month To Date
-            &nbsp;|&nbsp; pp – Percentage Points
-          </p>
+            <KpiSection />
+            <OverviewSection />
+            <AssuranceSection />
+          </div>
         </div>
-      </div>
-    </AppShell>
+      </AppShell>
+    </DashboardCtx.Provider>
   );
 }
 
 function DashboardFilters() {
+  const { range } = useDash();
+
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
       <button
         type="button"
         className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium shadow-xs transition-colors hover:bg-muted/50"
       >
-        Global View
-        <ChevronDown className="size-4 text-muted-foreground" />
-      </button>
-
-      <button
-        type="button"
-        className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium shadow-xs transition-colors hover:bg-muted/50"
-      >
         <Calendar className="size-4 text-muted-foreground" />
-        May 12, 2025 – May 18, 2025
+        {range || "All available months"}
       </button>
 
       <span className="inline-flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground">
         <RefreshCw className="size-3.5" />
         Last refreshed: 10:30 AM
       </span>
-
-      <button
-        type="button"
-        className="inline-flex items-center gap-2 rounded-xl border border-primary bg-primary/15 px-3 py-2 text-xs font-semibold transition-colors hover:bg-primary/20"
-      >
-        <Settings2 className="size-4" />
-        Customize
-      </button>
     </div>
   );
 }
 
 function KpiSection() {
+  const { kpis: live } = useDash();
+  // Positional merge: the server returns the six in the order this array
+  // declares them, and both are keyed off the same product decision about what
+  // the top row shows.
+  const cards = kpis.map((kpi, i) => ({ ...kpi, ...(live?.[i] ?? {}) }));
+
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {kpis.map((kpi) => {
+      {cards.map((kpi) => {
         const Icon = kpi.icon;
 
         return (
@@ -245,8 +241,6 @@ function KpiSection() {
               <p className="mt-0.5 text-xl font-bold tracking-tight text-foreground">
                 {kpi.value}
               </p>
-
-              <Delta value={kpi.delta} good={kpi.good} suffix="vs Apr 2025" />
             </div>
           </div>
         );
@@ -267,15 +261,15 @@ function OverviewSection() {
 }
 
 function RevenueTrendPanel() {
+  const { revenueTrend, trendUnit } = useDash();
+
   return (
     <Panel
       title="Revenue Trend"
       subtitle="(MTD)"
       action={<LinkAction label="View Full Report" />}
     >
-      <p className="mb-1 text-[10px] text-muted-foreground">
-        USD (Millions)
-      </p>
+      <p className="mb-1 text-[10px] text-muted-foreground">{trendUnit}</p>
 
       <div className="h-[240px] w-full">
         <ResponsiveContainer width="100%" height="100%">
@@ -355,6 +349,8 @@ function RevenueTrendPanel() {
 }
 
 function LeakageBreakdownPanel() {
+  const { leakageBreakdown, leakageTotal } = useDash();
+
   return (
     <Panel
       title="Leakage Breakdown"
@@ -391,7 +387,7 @@ function LeakageBreakdownPanel() {
 
           <div className="pointer-events-none z-10 w-[86px] text-center [grid-area:1/1]">
             <p className="text-base font-bold leading-tight text-foreground">
-              $3.82M
+              {leakageTotal}
             </p>
             <p className="text-[9px] font-medium uppercase leading-tight tracking-wide text-muted-foreground">
               Total Leakage
@@ -405,8 +401,7 @@ function LeakageBreakdownPanel() {
               key={item.name}
               className="grid items-center gap-x-2 rounded-lg px-1.5 py-1 text-[11px] transition-colors hover:bg-muted/60"
               style={{
-                gridTemplateColumns:
-                  "minmax(0,1fr) max-content max-content",
+                gridTemplateColumns: "minmax(0,1fr) max-content max-content",
               }}
             >
               <span className="flex min-w-0 items-center gap-2">
@@ -419,7 +414,7 @@ function LeakageBreakdownPanel() {
               </span>
 
               <span className="whitespace-nowrap font-semibold">
-                ${item.value.toFixed(2)}M
+                {item.display}
               </span>
 
               <span className="whitespace-nowrap text-muted-foreground">
@@ -434,12 +429,10 @@ function LeakageBreakdownPanel() {
 }
 
 function LeakageDriversPanel() {
+  const { leakageDrivers } = useDash();
+
   return (
-    <Panel
-      title="Top Leakage Drivers"
-      subtitle="(MTD)"
-      action={<LinkAction />}
-    >
+    <Panel title="Top Leakage Drivers" subtitle="(MTD)" action={<LinkAction />}>
       <div className="-mx-1 overflow-x-auto">
         <table className="w-full table-auto text-left text-[11px]">
           <thead className="text-muted-foreground">
@@ -447,9 +440,7 @@ function LeakageDriversPanel() {
               <th className="px-1 pb-2 font-medium">Driver</th>
               <th className="px-1 pb-2 font-medium">Module</th>
               <th className="px-1 pb-2 font-medium">Leakage (USD)</th>
-              <th className="px-1 pb-2 text-right font-medium">
-                % Impact
-              </th>
+              <th className="px-1 pb-2 text-right font-medium">% Impact</th>
             </tr>
           </thead>
 
@@ -494,6 +485,8 @@ function LeakageDriversPanel() {
 }
 
 function ControlHealthPanel() {
+  const { controlHealth } = useDash();
+
   return (
     <Panel title="Control Health Overview" action={<LinkAction />}>
       <div className="-mx-1 overflow-x-auto">
@@ -510,10 +503,7 @@ function ControlHealthPanel() {
 
           <tbody>
             {controlHealth.map((control) => (
-              <tr
-                key={control.type}
-                className="border-b border-border/60"
-              >
+              <tr key={control.type} className="border-b border-border/60">
                 <td className="px-1 py-2">{control.type}</td>
 
                 <td className="tabular px-1 py-2 font-semibold">
@@ -541,10 +531,12 @@ function ControlHealthPanel() {
 }
 
 function AssuranceSection() {
+  const { prepaidTech, postpaidTech, prepaidFlow, postpaidFlow } = useDash();
+
   return (
     <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)]">
       <div className="grid content-start gap-3">
-        <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.8fr)]">
+        <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1.8fr)]">
           <TechPanel
             title="Prepaid Revenue by Technology"
             items={prepaidTech}
@@ -556,7 +548,7 @@ function AssuranceSection() {
           />
         </div>
 
-        <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.8fr)]">
+        <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1.8fr)]">
           <TechPanel
             title="Postpaid Revenue by Technology"
             items={postpaidTech}
@@ -569,7 +561,6 @@ function AssuranceSection() {
         </div>
 
         <DataHealthPanel />
-        <QuickActionsPanel />
       </div>
 
       <div className="grid content-start gap-3">
@@ -581,6 +572,8 @@ function AssuranceSection() {
 }
 
 function DataHealthPanel() {
+  const { dataHealth } = useDash();
+
   return (
     <Panel title="Data Health" subtitle="(MTD)">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -602,11 +595,7 @@ function DataHealthPanel() {
                   {item.value}
                 </p>
 
-                <Delta
-                  value={item.delta}
-                  up={item.up}
-                  good={item.good}
-                />
+                <Delta value={item.delta} up={item.up} good={item.good} />
               </div>
             </div>
           );
@@ -616,67 +605,19 @@ function DataHealthPanel() {
   );
 }
 
-function QuickActionsPanel() {
-  const actions = [
-    {
-      label: "Create Case",
-      icon: PlusCircle,
-      style: "hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700",
-    },
-    {
-      label: "Run Reconciliation",
-      icon: Play,
-      style:
-        "hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700",
-    },
-    {
-      label: "Investigate Leakage",
-      icon: Search,
-      style:
-        "hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700",
-    },
-    {
-      label: "Generate Report",
-      icon: FileText,
-      style:
-        "hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700",
-    },
-  ];
-
-  return (
-    <Panel title="Quick Actions">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {actions.map((action) => {
-          const Icon = action.icon;
-
-          return (
-            <button
-              key={action.label}
-              type="button"
-              className={`flex flex-col items-center gap-2 rounded-xl border border-border bg-background px-3 py-4 text-[11px] font-medium shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${action.style}`}
-            >
-              <span className="grid size-8 place-items-center rounded-lg bg-muted/70">
-                <Icon className="size-4" />
-              </span>
-
-              {action.label}
-            </button>
-          );
-        })}
-      </div>
-    </Panel>
-  );
-}
-
 function AlertsSnapshotPanel() {
+  const { alerts } = useDash();
+  const show = (n: number | undefined) =>
+    n === undefined ? "—" : n.toLocaleString("en-IN");
+
   return (
     <Panel title="Alerts & Cases Snapshot" action={<LinkAction />}>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <AlertTile
           icon={Siren}
           label="Critical Alerts"
-          value="128"
-          delta="15 vs yesterday"
+          value={show(alerts?.criticalAlerts)}
+          delta="open now"
           containerStyle="border-red-200 bg-red-50/80"
           iconStyle="bg-red-100 text-red-600"
           good={false}
@@ -685,8 +626,8 @@ function AlertsSnapshotPanel() {
         <AlertTile
           icon={FolderOpen}
           label="Open Cases"
-          value="342"
-          delta="12 vs yesterday"
+          value={show(alerts?.openCases)}
+          delta="open now"
           containerStyle="border-amber-200 bg-amber-50/80"
           iconStyle="bg-amber-100 text-amber-600"
           good={false}
@@ -695,8 +636,8 @@ function AlertsSnapshotPanel() {
         <AlertTile
           icon={Lightbulb}
           label="High Priority Cases"
-          value="98"
-          delta="8 vs yesterday"
+          value={show(alerts?.highPriority)}
+          delta="open now"
           containerStyle="border-violet-200 bg-violet-50/80"
           iconStyle="bg-violet-100 text-violet-600"
           good={false}
@@ -705,8 +646,8 @@ function AlertsSnapshotPanel() {
         <AlertTile
           icon={Search}
           label="Pending Investigations"
-          value="56"
-          delta="5 vs yesterday"
+          value={show(alerts?.pendingInvestigations)}
+          delta="open now"
           containerStyle="border-blue-200 bg-blue-50/80"
           iconStyle="bg-blue-100 text-blue-600"
           good={false}
@@ -719,6 +660,8 @@ function AlertsSnapshotPanel() {
 // Replace AiRecommendedActionsPanel with this.
 
 function AiRecommendedActionsPanel() {
+  const { aiActions } = useDash();
+
   return (
     <Panel title="AI Recommended Actions" action={<LinkAction />}>
       <ul className="space-y-1">
@@ -781,10 +724,14 @@ function TechPanel({
 }) {
   return (
     <Panel title={title} subtitle="(MTD)">
-      <div className="grid grid-cols-3 gap-2">
+      <div
+        className="grid gap-2"
+        style={{
+          gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))`,
+        }}
+      >
         {items.map((item) => {
-          const Icon =
-            techIcons[item.icon as keyof typeof techIcons] ?? Wifi;
+          const Icon = techIcons[item.icon as keyof typeof techIcons] ?? Wifi;
 
           return (
             <div key={item.label} className="text-center">
@@ -798,9 +745,7 @@ function TechPanel({
 
               <p className="text-sm font-bold">{item.value}</p>
 
-              <p className="text-[10px] text-muted-foreground">
-                {item.share}
-              </p>
+              <p className="text-[10px] text-muted-foreground">{item.share}</p>
 
               <Delta value={item.delta} />
             </div>
@@ -862,7 +807,6 @@ function FlowPanel({
     </Panel>
   );
 }
-
 
 function AlertTile({
   icon: Icon,
