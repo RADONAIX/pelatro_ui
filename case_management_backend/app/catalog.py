@@ -52,6 +52,11 @@ ASSURANCES: list[Assurance] = [
 # than spelled "BA" at each of the places that check.
 BILLING_ASSURANCE_CODE = "BA"
 
+#: The assurance that owns rating. A billing shock is almost never a billing
+#: fault — billing adds tax to whatever rating handed it — so this is where the
+#: cause of one is already recorded.
+RATING_ASSURANCE_CODE = "RA"
+
 ASSURANCE_BY_CODE: dict[str, Assurance] = {a.code: a for a in ASSURANCES}
 ASSURANCE_BY_NAME: dict[str, Assurance] = {a.name.lower(): a for a in ASSURANCES}
 

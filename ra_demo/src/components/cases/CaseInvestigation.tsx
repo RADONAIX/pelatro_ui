@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Activity, Bot, Brain, ChevronDown, ClipboardList, Download, FileText, History, Lightbulb,
-  Loader2, MessageSquarePlus, Paperclip, PencilLine, RotateCw, Save, ScanSearch, Trash2, Upload, X,
+  Loader2, MessageSquarePlus, Paperclip, PencilLine, RotateCw, Save, ScanSearch, Table2, Trash2, Upload, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui-kit/StatusBadge";
@@ -17,6 +17,7 @@ import {
   fetchInvestigation, supportsInvestigation, type Investigation,
 } from "@/lib/investigation";
 import { AnalysisProgress, BillInvestigationPanel, RatingAnalysis } from "@/components/cases/BillInvestigationPanel";
+import { RuleReportSample, hasRuleReport } from "@/components/cases/RuleReportSample";
 
 // Collapsible section. Four hand-rolled copies of this pattern exist across the
 // app and none is shared, so this one is local to the investigation modal.
@@ -317,6 +318,19 @@ export function CaseInvestigation({
                   <Metric label="Affected records" value={c.affectedCount.toLocaleString()} />
                 </div>
               </div>
+
+              {/* The rows behind the count above. Only for a case the engine
+                  raised from a rule — a hand-raised one has no report. */}
+              {hasRuleReport(c) && (
+                <Section
+                  title="Rule Report Sample"
+                  icon={<Table2 className="h-4 w-4" />}
+                  defaultOpen
+                  badge={c.affectedCount ? `${c.affectedCount.toLocaleString()} breached` : undefined}
+                >
+                  <RuleReportSample case={c} />
+                </Section>
+              )}
 
               <Section title="AI Impact Insight" icon={<Brain className="h-4 w-4" />} defaultOpen badge="generated">
                 <div className="pt-3 space-y-3">

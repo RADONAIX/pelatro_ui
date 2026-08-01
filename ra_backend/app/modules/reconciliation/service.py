@@ -44,6 +44,29 @@ def kind_for(category: str | None) -> str | None:
     return COMPILED_CATEGORIES.get((category or "").strip().lower())
 
 
+def key_columns(plan, kind: str) -> list[str]:
+    """Which of a report's columns identify the record, rather than measure it.
+
+    `business_columns` is keys-then-metrics with nothing marking the boundary,
+    so a client wanting "one row per subject" — a sample of who is affected
+    rather than ten rows about one subscriber — had to guess at it. This says
+    where the keys end.
+
+    A reconciliation joins on pairs, so BOTH sides are named: a row missing
+    from one table carries its identity only on the other, and picking a single
+    column would make every such row look like the same (null) subject.
+    """
+    if kind == KIND_RECONCILIATION:
+        return [c for pair in plan.keys for c in (pair.output_left, pair.output_right)]
+    if kind in (KIND_SEQUENCE, KIND_DUPLICATE):
+        # The series and the position within it. The remaining sequence columns
+        # are counts derived from those two.
+        return ["partition_key", "sequence_value"]
+    # Anything else: the leading business column, which is the closest thing to
+    # an identity a single-table rule projects.
+    return list(plan.business_columns[:1])
+
+
 def is_reconciliation(category: str | None) -> bool:
     """True when the category compiles to an executable rule of any kind.
 
@@ -260,6 +283,7 @@ async def read_report(
             "kind": kind,
             "statuses": list(allowed),
             "columns": [*plan.business_columns, "status"],
+            "keyColumns": key_columns(plan, kind),
             "rows": [],
             "total": 0,
             "limit": limit,
@@ -291,6 +315,9 @@ async def read_report(
         # The status vocabulary differs by kind, and the view renders filter
         # chips from it — so it is served with the page rather than assumed.
         "statuses": list(allowed),
+        # Which columns identify a record. Lets a client sample one row per
+        # subject without inferring where keys stop and metrics begin.
+        "keyColumns": key_columns(plan, kind),
         "executionId": str(latest["execution_id"]),
         "executedAt": latest["started_at"],
         "statusFilter": status,

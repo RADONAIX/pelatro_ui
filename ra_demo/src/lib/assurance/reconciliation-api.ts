@@ -51,6 +51,14 @@ export interface ReconPage {
   ruleId: string;
   /** Selected comparison keys, then metrics, then "status". Nothing else. */
   columns: string[];
+  /**
+   * The subset of `columns` that identify a record rather than measure it.
+   *
+   * Served because the keys/metrics boundary inside `columns` is not otherwise
+   * visible, and a client sampling "one row per subject" has to know where it
+   * falls. Optional: a report generated before the backend sent this has none.
+   */
+  keyColumns?: string[];
   rows: Record<string, unknown>[];
   total: number;
   limit: number;

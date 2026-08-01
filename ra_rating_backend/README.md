@@ -40,6 +40,7 @@ cp .env.example .env          # then set JWT_SECRET to match ra_backend/.env
 alembic upgrade head          # creates the `rating` schema and its tables
 python -m app.seed            # reference data + example rules
 uvicorn app.main:app --port 8010 --reload
+
 ```
 
 Open http://localhost:8010/docs.

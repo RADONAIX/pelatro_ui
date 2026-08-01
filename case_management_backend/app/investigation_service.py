@@ -51,13 +51,25 @@ from app.canonical import (
     MscVsPostMediation,
     RatingReconciliation,
 )
-from app.catalog import BILLING_ASSURANCE_CODE, TERMINAL_STATUSES
+from app.catalog import (
+    BILLING_ASSURANCE_CODE,
+    RATING_ASSURANCE_CODE,
+    TERMINAL_STATUSES,
+)
 from app.config import settings
 from app.models import Case
 
 logger = logging.getLogger("ra.investigation")
 
 ZERO = Decimal("0")
+
+#: The rating category whose cases are a detection rather than someone's note —
+#: see `related_cases`.
+_RATING_ROOT_CAUSE_CATEGORY = "Reconciliation"
+
+#: How many upstream cases the existing-case check lists. The rating control
+#: raises one per run, and the newest already says everything the older ones do.
+_RELATED_CASE_LIMIT = 1
 
 # Services this investigation covers. Data is excluded deliberately — see the
 # module docstring.
@@ -426,42 +438,50 @@ def _duration_label(seconds: int | None) -> str:
 
 
 def related_cases(db: Session, case_id: str) -> dict:
-    """Other cases already raised against this subscriber.
+    """The case that already recorded the fault this bill inherited.
 
-    An unresolved prior case is the finding, not a footnote: it means the
-    problem was already known and billing ran before it was corrected.
+    This looks UPSTREAM rather than sideways. A billing shock is a rating fault
+    that reached an invoice — billing added tax to the charge rating produced —
+    so the case worth linking is the Rating Assurance control that detected the
+    wrong tariff, not another billing case on the same subscriber. Those were
+    siblings with the same cause; this is the cause.
+
+    Which is also why it is not matched on MSISDN: the rating control runs over
+    the whole rated stream and its case covers every affected subscriber at
+    once, so it carries no single number to match against.
+
+    Billing Assurance only — `require_billing_case` rejects anything else, and
+    no other assurance has this upstream relationship to reason about.
     """
     case = require_billing_case(db, case_id)
     msisdn = _subscriber_msisdn(db, case)
-    if not msisdn:
-        return {
-            "caseReference": case.reference, "msisdn": None,
-            "cases": [], "unresolvedCount": 0, "message": "", "impact": "",
-        }
 
     rows = db.execute(
         select(Case)
         .where(
-            or_(
-                Case.msisdn == msisdn,
-                # Cases raised before the msisdn column carry it in their text.
-                Case.title.contains(msisdn),
-                Case.description.contains(msisdn),
-            ),
             Case.id != case.id,
-            Case.assurance_code == BILLING_ASSURANCE_CODE,
-            # Only cases that predate this one. The finding is "we already knew
-            # and billed anyway", which a case raised afterwards cannot show —
-            # and without this the panel would list every case opened later on
-            # the same subscriber, growing with each new one.
+            Case.assurance_code == RATING_ASSURANCE_CODE,
+            # A reconciliation case: the control comparing what was rated
+            # against what should have been. A hand-raised rating case is
+            # somebody's note, not a detection.
+            Case.rule_category == _RATING_ROOT_CAUSE_CATEGORY,
+            Case.status.notin_(TERMINAL_STATUSES),
+            # Only a case that predates this one. The finding is "the fault was
+            # already known and billing ran anyway", which a case opened after
+            # the invoice cannot show.
             Case.created_at <= case.created_at,
         )
-        .order_by(Case.created_at.asc())
+        # Newest first, capped: the rating control raises a case per run, so an
+        # uncapped list would grow with every execution and say nothing more
+        # than its most recent entry already does.
+        .order_by(Case.created_at.desc())
+        .limit(_RELATED_CASE_LIMIT)
     ).scalars().all()
 
-    # The issue an unresolved case describes is the rating fault itself, so it
-    # is named from the rating root cause rather than the case's primitive
-    # category — which for a hand-raised case is only "Manual Investigation".
+    # Named from THIS subscriber's rating fault rather than the linked case's
+    # own description. The upstream case counts its breached rows across every
+    # affected subscriber, which says nothing about why this bill is wrong; the
+    # root cause does, and it is the same fault in both.
     rating_row = _rating_for(db, case, msisdn)
     issue = _root_cause(rating_row).get("description", "") if rating_row is not None else ""
 
