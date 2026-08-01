@@ -70,26 +70,6 @@ export const RATING_NAV: RatingNavItem[] = [
     icon: FileBarChart2,
     phase: 1,
   },
-  // The batch job monitor (/pipelines), not the rating-run screen
-  // (/rating/pipeline). This is the platform-wide AIR/SDP monitor — batch
-  // status, the four stage cards, file quality and the export dialog — and it
-  // is meaningful under every assurance scope, which the rating-run screen is
-  // not. /rating/pipeline is unchanged and still resolves by URL.
-  {
-    to: "/pipelines",
-    label: "Pipelines & Job Monitor",
-    icon: Activity,
-    phase: 1,
-  },
-  // Runs the rating reconciliation against the mirror database. Distinct from
-  // Pipelines & Job Monitor above, which watches AIR/SDP batch ingestion — that
-  // is what arrived, this is what was done with it.
-  {
-    to: "/rating/execution",
-    label: "Assurance Execution",
-    icon: PlayCircle,
-    phase: 1,
-  },
   {
     to: "/rating/rules",
     label: "Rule Management",
@@ -123,6 +103,26 @@ export const RATING_NAV: RatingNavItem[] = [
         phase: 1,
       },
     ],
+  },
+  // The batch job monitor (/pipelines), not the rating-run screen
+  // (/rating/pipeline). This is the platform-wide AIR/SDP monitor — batch
+  // status, the four stage cards, file quality and the export dialog — and it
+  // is meaningful under every assurance scope, which the rating-run screen is
+  // not. /rating/pipeline is unchanged and still resolves by URL.
+  {
+    to: "/pipelines",
+    label: "Pipelines & Job Monitor",
+    icon: Activity,
+    phase: 1,
+  },
+  // Runs the rating reconciliation against the mirror database. Distinct from
+  // Pipelines & Job Monitor above, which watches AIR/SDP batch ingestion — that
+  // is what arrived, this is what was done with it.
+  {
+    to: "/rating/execution",
+    label: "Assurance Execution",
+    icon: PlayCircle,
+    phase: 1,
   },
   {
     to: "/rating/catalog",
