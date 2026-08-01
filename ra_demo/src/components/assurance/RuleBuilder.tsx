@@ -147,22 +147,6 @@ export function RuleBuilder({
     [modules, rule?.entity],
   );
 
-  /**
-   * The categories offered, for the same reason and by the same rule as
-   * entityOptions above.
-   *
-   * Every category used to be listed, with the ones this assurance doesn't
-   * author suffixed "· out of scope" — a dozen unselectable-in-practice options
-   * in front of the author for no gain, when the Rule Explorer already names
-   * them under "Hidden by metadata". A rule saved under a category that has
-   * since left scope keeps it while editing.
-   */
-  const categoryOptions = useMemo(
-    () =>
-      rule?.category && !scoped.includes(rule.category) ? [rule.category, ...scoped] : scoped,
-    [scoped, rule?.category],
-  );
-
   // The catalog answers after the first render, so the seeded value can be one
   // this assurance doesn't offer. Correct it to the first real option — but
   // never overwrite a choice that IS valid, including the edited rule's own.
@@ -370,7 +354,7 @@ export function RuleBuilder({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {categoryOptions.map((c) => (
+                  {RULE_CATEGORIES.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c}
                     </SelectItem>
