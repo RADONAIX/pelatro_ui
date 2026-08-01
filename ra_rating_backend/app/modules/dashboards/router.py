@@ -9,7 +9,7 @@ than zero so the UI can render "not yet available" instead of a misleading
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -20,9 +20,9 @@ from app.core.errors import ValidationFailedError
 from app.core.rbac import RatingPermKey
 from app.modules.catalog import models as cm
 from app.modules.dashboards import service as dash_svc
-from app.modules.rules import service as rule_svc
+from app.modules.rules.canonical.lineage import CanonicalRuleAudit
+from app.modules.rules.canonical.rule import CanonicalRule, CanonicalRuleVersion
 from app.modules.rules.constants import RuleStatus
-from app.modules.rules.models import Rule, RuleAuditEntry
 
 router = APIRouter(prefix="/dashboards", tags=["dashboards"])
 
@@ -141,16 +141,60 @@ async def leakage(
     dependencies=[Depends(_view)],
 )
 async def overview(db: DbSession) -> Overview:
-    stats = await rule_svc.stats(db)
+    # The canonical store (`ra_rule.*`) is what the Rule Catalogue, approvals
+    # and snapshots read (RULE_COMPILE_SOURCE=CANONICAL). Counting the legacy
+    # `rating.rules` table here showed 3 hand-authored rules while the
+    # catalogue listed the whole imported estate.
+    async def _scalar(stmt) -> int:
+        return int((await db.scalar(stmt)) or 0)
 
-    pending = int(
-        (
-            await db.execute(
-                select(func.count())
-                .select_from(Rule)
-                .where(Rule.status.in_([RuleStatus.REVIEWED, RuleStatus.VALIDATED]))
-            )
-        ).scalar_one()
+    total_versions = await _scalar(
+        select(func.count()).select_from(CanonicalRuleVersion)
+    )
+    logical = await _scalar(select(func.count()).select_from(CanonicalRule))
+
+    by_status_rows = await db.execute(
+        select(CanonicalRule.status, func.count()).group_by(CanonicalRule.status)
+    )
+    by_status = {str(k): int(v) for k, v in by_status_rows.all()}
+
+    by_service_rows = await db.execute(
+        select(CanonicalRule.service_type, func.count()).group_by(
+            CanonicalRule.service_type
+        )
+    )
+    by_service_type = {str(k): int(v) for k, v in by_service_rows.all()}
+
+    draft_count = by_status.get(RuleStatus.DRAFT, 0)
+    pending = by_status.get(RuleStatus.VALIDATED, 0) + by_status.get(
+        RuleStatus.REVIEWED, 0
+    )
+    active_count = by_status.get(RuleStatus.ACTIVE, 0) + by_status.get(
+        RuleStatus.PUBLISHED, 0
+    )
+
+    rules_with_errors = await _scalar(
+        select(func.count())
+        .select_from(CanonicalRule)
+        .join(
+            CanonicalRuleVersion,
+            CanonicalRuleVersion.rule_version_id == CanonicalRule.current_version_id,
+        )
+        .where(CanonicalRuleVersion.validation_state == "ERROR")
+    )
+
+    horizon = date.today() + timedelta(days=30)
+    expiring = await _scalar(
+        select(func.count())
+        .select_from(CanonicalRuleVersion)
+        .where(
+            CanonicalRuleVersion.effective_to.isnot(None),
+            CanonicalRuleVersion.effective_to <= horizon,
+            CanonicalRuleVersion.effective_to >= date.today(),
+            CanonicalRuleVersion.status.in_(
+                [RuleStatus.ACTIVE, RuleStatus.PUBLISHED]
+            ),
+        )
     )
 
     async def _count(model) -> int:
@@ -179,9 +223,12 @@ async def overview(db: DbSession) -> Overview:
 
     activity_rows = (
         await db.execute(
-            select(RuleAuditEntry).order_by(RuleAuditEntry.created_at.desc()).limit(10)
+            select(CanonicalRuleAudit, CanonicalRule.rule_key)
+            .join(CanonicalRule, CanonicalRule.rule_id == CanonicalRuleAudit.rule_id)
+            .order_by(CanonicalRuleAudit.created_at.desc())
+            .limit(10)
         )
-    ).scalars().all()
+    ).all()
 
     k = await dash_svc.kpis(db)
     assurance = (
@@ -201,27 +248,27 @@ async def overview(db: DbSession) -> Overview:
 
     return Overview(
         rule_estate=RuleEstate(
-            total_rules=stats["total_rules"],
-            logical_rules=stats["logical_rules"],
-            draft_count=stats["draft_count"],
+            total_rules=total_versions,
+            logical_rules=logical,
+            draft_count=draft_count,
             pending_approval=pending,
-            active_count=stats["active_count"],
-            rules_with_errors=stats["rules_with_errors"],
-            expiring_within_30_days=stats["expiring_within_30_days"],
-            by_status=stats["by_status"],
-            by_service_type=stats["by_service_type"],
+            active_count=active_count,
+            rules_with_errors=rules_with_errors,
+            expiring_within_30_days=expiring,
+            by_status=by_status,
+            by_service_type=by_service_type,
         ),
         catalog=CatalogReadiness(**counts, warnings=warnings),
         assurance=assurance,
         recent_activity=[
             RecentActivity(
-                rule_key=a.rule_key,
-                version=a.version,
+                rule_key=rule_key,
+                version=a.version_number,
                 action=a.action,
                 actor_name=a.actor_name,
-                comment=a.comment,
+                comment=a.comment or "",
                 created_at=a.created_at.isoformat(),
             )
-            for a in activity_rows
+            for a, rule_key in activity_rows
         ],
     )
