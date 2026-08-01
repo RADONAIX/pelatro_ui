@@ -2,6 +2,19 @@ import axios from "axios";
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || "/api";
 
+/**
+ * The API's origin — `baseURL` with its `/api` suffix removed. Callers that
+ * build the full path themselves (the fetch-based auth client, the Superset
+ * guest token) need this; everything routed through `api` below wants
+ * `baseURL`. Derived rather than configured separately so VITE_API_BASE_URL
+ * stays the one place the backend address is set — a second variable is how
+ * login ends up on a different host from the rest of the app.
+ *
+ * With the default `/api` this is `""`, so those callers produce a relative
+ * path and keep working behind a reverse proxy.
+ */
+export const apiOrigin = baseURL.replace(/\/api\/?$/, "");
+
 // A JS number is a 64-bit float, so it can't hold integers beyond 2^53
 // (Number.MAX_SAFE_INTEGER = 9,007,199,254,740,991). The browser's JSON.parse
 // silently ROUNDS bigger integers — e.g. a 19-digit sequence number

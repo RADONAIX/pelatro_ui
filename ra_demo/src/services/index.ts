@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, apiOrigin } from "@/lib/api";
 import type { Role } from "@/lib/auth";
 
 async function safeGet<T>(path: string, fallback: T, config?: any): Promise<T> {
@@ -26,7 +26,13 @@ const DEMO_ACCOUNTS: Record<string, { id: string; name: string; role: Role; role
   "viewer@radonaix.io": { id: "u-003", name: "Mei Tanaka", role: "viewer", roleLabel: "Report Viewer", avatar: "MT", department: "Compliance" },
 };
 
-const AUTH_BASE = (import.meta as any).env?.VITE_AUTH_API_BASE ?? "http://localhost:8000";
+// Login runs before a session exists, so it uses fetch rather than the shared
+// axios client — but it must still reach the SAME backend. Follow
+// VITE_API_BASE_URL (via `apiOrigin`) instead of a hardcoded host, which is
+// what previously sent every sign-in to localhost:8000 no matter what the
+// environment said. VITE_AUTH_API_BASE remains an override for a deployment
+// that genuinely serves auth from elsewhere.
+const AUTH_BASE = (import.meta as any).env?.VITE_AUTH_API_BASE ?? apiOrigin;
 
 export const authService = {
   login: async (email: string, password: string) => {

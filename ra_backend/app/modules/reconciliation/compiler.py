@@ -70,7 +70,7 @@ def parse_table_id(table_id: str) -> tuple[str | None, str, str]:
 async def _resolve_table(assurance: str, table_id: str) -> TableRef:
     database, schema, table = parse_table_id(table_id)
     # Raises when the table is outside this assurance's configured scope.
-    database = metadata_catalog.source_for_schema(assurance, schema, database)
+    database = metadata_catalog.source_for_schema(assurance, schema, database, table)
     return TableRef(database=database, schema=schema, table=table)
 
 

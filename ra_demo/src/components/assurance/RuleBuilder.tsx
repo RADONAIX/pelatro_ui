@@ -5,6 +5,7 @@ import { RULE_CATEGORIES, ruleCategories } from "@/lib/assurance/platform-metada
 import {
   CATEGORY_PARAMS,
   COMPARISON_CATEGORIES,
+  SINGLE_TABLE_CATEGORIES,
   emptyCaseRouting,
   emptyComparison,
   type AttrPair,
@@ -150,7 +151,14 @@ export function RuleBuilder({
   // comparing two, so they get the file-log picker instead of the free-text
   // parameter boxes. The backend compiles them from the same three values.
   const isFileLogRule = FILE_LOG_CATEGORIES.has(category);
+  // Threshold runs over ONE source table, so it gets a table + attribute picker
+  // instead of free-text boxes (see SINGLE_TABLE_CATEGORIES).
+  const isSingleTable = SINGLE_TABLE_CATEGORIES.has(category);
   const isMultiple = comparison.mode === "Multiple";
+  // Both dedicated editors above supply the whole parameter set themselves, so
+  // the generic box has nothing left to render — and an empty bordered panel
+  // headed "Threshold parameters" reads as a section that failed to load.
+  const flatFields = isFileLogRule || isSingleTable ? [] : fields;
 
   // A comparison rule needs enough to actually run: both tables, at least one
   // complete metric pair, and — when joining two tables — at least one complete
@@ -169,9 +177,15 @@ export function RuleBuilder({
   const fileLogValid =
     !isFileLogRule || (!!params.table && !!params.sequenceField);
 
+  // A threshold needs all three: which table, which attribute of it, and the
+  // limit that attribute is judged against. None of them has a sensible default.
+  const singleTableValid =
+    !isSingleTable || (!!params.table && !!params.attribute && !!params.value?.trim());
+
   // The server requires an entity, so guard the brief window before the catalog
   // answers rather than letting the save come back 422.
-  const valid = name.trim().length > 1 && !!entity && comparisonValid && fileLogValid;
+  const valid =
+    name.trim().length > 1 && !!entity && comparisonValid && fileLogValid && singleTableValid;
 
   // Seeds every field from the rule under edit, or back to defaults when
   // authoring. Runs on close as well as on open, so a cancelled edit leaves no
@@ -214,7 +228,13 @@ export function RuleBuilder({
         severity,
         frequency,
         state,
-        params,
+        // A rule edited from Threshold's old measure/operator/limit shape — or
+        // switched here from another category — still carries those keys in
+        // state. Save only what this category declares, so the stored rule
+        // matches what the author actually filled in.
+        params: isSingleTable
+          ? Object.fromEntries(fields.map((f) => [f.key, params[f.key] ?? ""]))
+          : params,
         // Drop the half-filled other mode so a Single rule never carries a
         // table2/keys that nothing reads.
         ...(isComparison
@@ -392,24 +412,36 @@ export function RuleBuilder({
             <FileLogEditor category={category} value={params} onChange={setParams} />
           )}
 
-          <div className="rounded-md border border-border p-3">
-            <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              {category} parameters
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {fields.filter((f) => !isFileLogRule).map((f) => (
-                <div key={f.key} className="space-y-1.5">
-                  <Label htmlFor={`p-${f.key}`}>{f.label}</Label>
-                  <Input
-                    id={`p-${f.key}`}
-                    value={params[f.key] ?? ""}
-                    onChange={(e) => setParams((p) => ({ ...p, [f.key]: e.target.value }))}
-                    placeholder={f.placeholder}
-                  />
-                </div>
-              ))}
+          {isSingleTable && (
+            <SingleTableEditor
+              assurance={app.id}
+              category={category}
+              fields={fields}
+              value={params}
+              onChange={setParams}
+            />
+          )}
+
+          {flatFields.length > 0 && (
+            <div className="rounded-md border border-border p-3">
+              <p className="mb-3 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                {category} parameters
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {flatFields.map((f) => (
+                  <div key={f.key} className="space-y-1.5">
+                    <Label htmlFor={`p-${f.key}`}>{f.label}</Label>
+                    <Input
+                      id={`p-${f.key}`}
+                      value={params[f.key] ?? ""}
+                      onChange={(e) => setParams((p) => ({ ...p, [f.key]: e.target.value }))}
+                      placeholder={f.placeholder}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -696,6 +728,131 @@ function ComparisonEditor({
       )}
 
       {isMultiple && pairRows("keys", "The attributes used to join records across the two tables.")}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Single-table editor — the authoring surface for Threshold (see
+// SINGLE_TABLE_CATEGORIES).
+//
+// A threshold is "this attribute of this table, against this limit". The table
+// and attribute come from the assurance's live metadata, so a rule can only
+// ever name a column that exists; the limit is the one genuinely free value.
+// ---------------------------------------------------------------------------
+
+function SingleTableEditor({
+  assurance,
+  category,
+  fields,
+  value,
+  onChange,
+}: {
+  assurance: string;
+  category: RuleCategory;
+  /** The category's declared parameters — supplies the labels and hints. */
+  fields: { key: string; label: string; placeholder: string }[];
+  value: Record<string, string>;
+  onChange: (next: Record<string, string>) => void;
+}) {
+  const [tables, setTables] = useState<AssuranceTable[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [tablesLoading, setTablesLoading] = useState(true);
+  const [columnsLoading, setColumnsLoading] = useState(false);
+  const [metadataError, setMetadataError] = useState("");
+
+  const table = value.table ?? "";
+  const hint = (key: string) => fields.find((f) => f.key === key)?.placeholder ?? "";
+
+  useEffect(() => {
+    let active = true;
+    setTables([]);
+    setTablesLoading(true);
+    setMetadataError("");
+    fetchAssuranceTables(assurance)
+      .then((next) => {
+        if (active) setTables(next);
+      })
+      .catch(() => {
+        if (active) setMetadataError("Could not load tables from RA_Backend.");
+      })
+      .finally(() => {
+        if (active) setTablesLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [assurance]);
+
+  // Attributes are the selected table's real columns, refetched whenever the
+  // table changes.
+  useEffect(() => {
+    let active = true;
+    setColumns([]);
+    setColumnsLoading(!!table);
+    if (table) {
+      fetchTableColumns(assurance, table)
+        .then((next) => {
+          if (active) setColumns(next);
+        })
+        .catch(() => {
+          if (active) setMetadataError("Could not load the columns for the selected table.");
+        })
+        .finally(() => {
+          if (active) setColumnsLoading(false);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [assurance, table]);
+
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        {category} source
+      </p>
+
+      <div className="space-y-1.5">
+        <Label>Table</Label>
+        <TableSelect
+          tables={tables}
+          loading={tablesLoading}
+          value={table}
+          // The attribute belongs to the old table, so it is cleared rather
+          // than left pointing at a column the new one may not have.
+          onChange={(v) => onChange({ ...value, table: v, attribute: "" })}
+        />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Attribute</Label>
+          <ColumnSelect
+            columns={columns}
+            loading={columnsLoading}
+            value={value.attribute ?? ""}
+            onChange={(v) => onChange({ ...value, attribute: v })}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="single-table-value">Value</Label>
+          <Input
+            id="single-table-value"
+            value={value.value ?? ""}
+            onChange={(e) => onChange({ ...value, value: e.target.value })}
+            placeholder={hint("value")}
+          />
+        </div>
+      </div>
+
+      {metadataError && <p className="text-xs text-destructive">{metadataError}</p>}
+
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Flags rows where the selected attribute breaches the value — e.g.{" "}
+        {hint("attribute") || "the attribute"} on {hint("table") || "the table"}.
+      </p>
     </div>
   );
 }

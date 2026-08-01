@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -23,16 +25,34 @@ class ColumnMetadata(BaseModel):
     ordinal_position: int
 
 
-# Clients select an assurance application, not arbitrary databases.  A source
-# with ``schemas=None`` exposes every non-system schema in that allow-listed
-# database.  This is used for rafms_rating because its catalogue is intentionally
-# spread across ingestion, assurance, canonical-rating and source schemas.
-MetadataSource = tuple[str, tuple[str, ...] | None]
-
-
-# Which source schemas each assurance authors rules against.
+# Clients select an assurance application, not arbitrary databases.
 #
-#   Rating / Usage    -> MSC and IN, both in the rating database.
+# A source narrows in three steps, each optional:
+#   ``schemas=None`` exposes every non-system schema in the allow-listed
+#   database — used for rafms_rating, whose catalogue is intentionally spread
+#   across ingestion, assurance, canonical-rating and source schemas.
+#   ``tables=None`` exposes every table in those schemas.
+# Naming tables narrows a schema to the handful an assurance actually authors
+# against, for a schema that holds far more than that.
+class MetadataSource(NamedTuple):
+    database: str
+    schemas: tuple[str, ...] | None
+    #: Qualified "schema.table" names. None = every table in `schemas`.
+    tables: tuple[str, ...] | None
+
+
+#: Policy entry, same shape but with the database left as a marker that
+#: _resolve_database turns into a real name.
+class _SourcePolicy(NamedTuple):
+    database: str | None
+    schemas: tuple[str, ...] | None
+    tables: tuple[str, ...] | None = None
+
+
+# Which sources each assurance authors rules against.
+#
+#   Rating            -> two canonical rating tables, in the rating database.
+#   Usage             -> MSC and IN, both in the rating database.
 #   Billing / Charging-> SDP and MSC. NOTE these are in DIFFERENT databases:
 #                        the SDP tables live in rafms, msc_schema only exists in
 #                        rafms_rating (rafms_rating.sdp_schema is empty). Both
@@ -45,24 +65,35 @@ MetadataSource = tuple[str, tuple[str, ...] | None]
 # An assurance with no entry here falls back to DEFAULT_SOURCES rather than
 # erroring: every scope's Rule Explorer must be able to list tables, even one
 # whose source systems have not been assigned yet.
-#: Policy entry: (database marker, schemas). The marker is resolved to a real
-#: database name by _resolve_database.
-_SourcePolicy = tuple[str | None, tuple[str, ...] | None]
-
 _ASSURANCE_SOURCES: dict[str, tuple[_SourcePolicy, ...]] = {
-    "rating": ((None, ("msc_schema", "in_schema")),),
-    "usage": ((None, ("msc_schema", "in_schema")),),
+    # Rating authors against the canonical rating model, but only two of its
+    # tables: rating_reconciliation holds what rating concluded per event and
+    # tariff_master what it should have charged, which is the pairing a rating
+    # rule needs. The other twenty-two objects in canonical_rating are the
+    # reference data behind those two, not things a control compares.
+    #
+    # Usage keeps the switch/IN feeds below — it asks whether the network and
+    # the IN saw the same call, a question about the sources rather than about
+    # what rating made of them.
+    "rating": (
+        _SourcePolicy(
+            None,
+            ("canonical_rating",),
+            ("canonical_rating.rating_reconciliation", "canonical_rating.tariff_master"),
+        ),
+    ),
+    "usage": (_SourcePolicy(None, ("msc_schema", "in_schema")),),
     # Billing and Charging author against the AIR and SDP source schemas in the
     # RATING database. Both in one database, so a rule can pair them — unlike
     # the earlier msc/sdp split, where the two sides sat in different databases
     # and no rule could join them.
-    "billing": ((None, ("air_schema", "sdp_schema")),),
-    "charging": ((None, ("air_schema", "sdp_schema")),),
+    "billing": (_SourcePolicy(None, ("air_schema", "sdp_schema")),),
+    "charging": (_SourcePolicy(None, ("air_schema", "sdp_schema")),),
 }
 
 #: Used by any assurance without an explicit mapping above.
 DEFAULT_SOURCES: tuple[_SourcePolicy, ...] = (
-    (None, ("msc_schema", "in_schema", "air_schema")),
+    _SourcePolicy(None, ("msc_schema", "in_schema", "air_schema")),
 )
 
 
@@ -77,31 +108,52 @@ def _resolve_database(marker: str | None) -> str:
 
 def sources_for(assurance: str) -> tuple[MetadataSource, ...]:
     configured = _ASSURANCE_SOURCES.get(assurance.lower(), DEFAULT_SOURCES)
-    return tuple((_resolve_database(marker), schemas) for marker, schemas in configured)
+    return tuple(
+        MetadataSource(_resolve_database(policy.database), policy.schemas, policy.tables)
+        for policy in configured
+    )
+
+
+def _permits(source: MetadataSource, schema_name: str, table_name: str | None) -> bool:
+    """Whether this source covers the schema — and the table, when one is named.
+
+    `table_name=None` answers the weaker question "is this schema in scope",
+    which is all a caller that hasn't got a table can ask.
+    """
+    if source.schemas is not None and schema_name not in source.schemas:
+        return False
+    if source.tables is None or table_name is None:
+        return True
+    return f"{schema_name}.{table_name}" in source.tables
 
 
 def source_for_schema(
     assurance: str,
     schema_name: str,
     database_name: str | None = None,
+    table_name: str | None = None,
 ) -> str:
+    """The database a table lives in, or raise if it is out of scope.
+
+    Pass `table_name` wherever it is known: without it a schema-level match is
+    the most that can be checked, which would let a caller read a table the
+    policy names no allow-list entry for.
+    """
     if database_name is not None:
-        for allowed_database, schemas in sources_for(assurance):
-            database_allowed = allowed_database == database_name
-            schema_allowed = schemas is None or schema_name in schemas
-            if database_allowed and schema_allowed:
-                return allowed_database
+        for source in sources_for(assurance):
+            if source.database == database_name and _permits(source, schema_name, table_name):
+                return source.database
         raise NotFoundError("Table is outside the selected assurance scope.")
 
     # Backwards compatibility for rules saved before table IDs included the
     # database name. Prefer an explicitly configured schema over a wildcard
     # source when names overlap (for example air_schema exists in both DBs).
-    for database_name, schemas in sources_for(assurance):
-        if schemas is not None and schema_name in schemas:
-            return database_name
-    for database_name, schemas in sources_for(assurance):
-        if schemas is None:
-            return database_name
+    for source in sources_for(assurance):
+        if source.schemas is not None and _permits(source, schema_name, table_name):
+            return source.database
+    for source in sources_for(assurance):
+        if source.schemas is None and _permits(source, schema_name, table_name):
+            return source.database
     raise NotFoundError("Table is outside the selected assurance scope.")
 
 
@@ -186,34 +238,43 @@ async def list_file_log_columns(schema_name: str, table_name: str) -> list[Colum
 
 async def list_tables(assurance: str) -> list[TableMetadata]:
     tables: list[TableMetadata] = []
-    for database_name, schemas in sources_for(assurance):
-        if schemas is None:
-            schema_filter = """
+    for source in sources_for(assurance):
+        params: dict[str, list[str]] = {}
+        if source.schemas is None:
+            filters = """
               AND table_schema NOT IN ('pg_catalog', 'information_schema')
               AND table_schema NOT LIKE 'pg_toast%'
             """
-            params = None
         else:
-            schema_filter = "AND table_schema = ANY(CAST(:schemas AS text[]))"
-            params = {"schemas": list(schemas)}
+            filters = "AND table_schema = ANY(CAST(:schemas AS text[]))"
+            params["schemas"] = list(source.schemas)
+
+        # Named tables narrow the schema filter further. Still filtered in SQL
+        # rather than in Python so a schema holding thousands of tables isn't
+        # fetched whole to return two of them.
+        if source.tables is not None:
+            filters += """
+              AND table_schema || '.' || table_name = ANY(CAST(:tables AS text[]))
+            """
+            params["tables"] = list(source.tables)
 
         rows = await ra_postgres.query_database(
-            database_name,
+            source.database,
             f"""
             SELECT table_schema AS schema_name, table_name
             FROM information_schema.tables
             WHERE table_type IN ('BASE TABLE', 'VIEW', 'FOREIGN', 'FOREIGN TABLE')
-              {schema_filter}
+              {filters}
             ORDER BY table_schema, table_name
             """,
-            params,
+            params or None,
         )
         tables.extend(
             TableMetadata(
                 # Database-qualified IDs remain unique when the two databases
                 # contain the same schema/table name.
-                id=f"{database_name}:{row['schema_name']}.{row['table_name']}",
-                database_name=database_name,
+                id=f"{source.database}:{row['schema_name']}.{row['table_name']}",
+                database_name=source.database,
                 schema_name=row["schema_name"],
                 table_name=row["table_name"],
                 label=f"{row['schema_name']}.{row['table_name']}",
@@ -229,7 +290,7 @@ async def list_columns(
     table_name: str,
     database_name: str | None = None,
 ) -> list[ColumnMetadata]:
-    database_name = source_for_schema(assurance, schema_name, database_name)
+    database_name = source_for_schema(assurance, schema_name, database_name, table_name)
     rows = await ra_postgres.query_database(
         database_name,
         """

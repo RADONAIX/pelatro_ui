@@ -48,6 +48,20 @@ export const COMPARISON_CATEGORIES: ReadonlySet<RuleCategory> = new Set<RuleCate
 ]);
 
 /**
+ * Categories authored against ONE table, with its attribute picked from live
+ * metadata rather than typed.
+ *
+ * A threshold asks whether one attribute of one dataset has crossed a limit, so
+ * naming that dataset is part of the rule — "zero_duration_ratio > 2" as free
+ * text never said which table it was a ratio of, and a typo produced a control
+ * that silently never fired. Same reasoning as COMPARISON_CATEGORIES above,
+ * one table instead of two.
+ */
+export const SINGLE_TABLE_CATEGORIES: ReadonlySet<RuleCategory> = new Set<RuleCategory>([
+  "Threshold",
+]);
+
+/**
  * What should happen in Case Management when this rule breaches.
  *
  * Policy only — nothing evaluates a CustomRule, so no case is raised
@@ -139,10 +153,13 @@ export const CATEGORY_PARAMS: Record<
     { key: "compareField", label: "Compare against", placeholder: "charged_amount" },
     { key: "tolerance", label: "Tolerance", placeholder: "0.01" },
   ],
+  // Table and attribute come from live metadata (see SINGLE_TABLE_CATEGORIES);
+  // only the limit is typed. The placeholders are what the dedicated editor
+  // shows as hints — the table and attribute render as dropdowns, not inputs.
   Threshold: [
-    { key: "measure", label: "Measure", placeholder: "zero_duration_ratio" },
-    { key: "operator", label: "Operator", placeholder: ">" },
-    { key: "limit", label: "Limit", placeholder: "2" },
+    { key: "table", label: "Table", placeholder: "air_schema.air_raw_file_log" },
+    { key: "attribute", label: "Attribute", placeholder: "actual_record_count" },
+    { key: "value", label: "Value", placeholder: "2" },
   ],
   Sequence: [
     { key: "sequenceField", label: "Sequence field", placeholder: "file_seq_no" },
