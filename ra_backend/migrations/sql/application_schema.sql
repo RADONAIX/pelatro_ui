@@ -382,3 +382,13 @@ SET report_json = replace(
         '"PROCESSED_MISSING"', '"TABLE1_MISSING"'
     )::jsonb
 WHERE report_json::text LIKE '%_MISSING%';
+
+
+-- Extra source columns an author wants carried into a rule's report, beyond
+-- the ones the rule itself uses. JSONB array of column names ("1:col"/"2:col"
+-- for a two-table reconciliation).
+ALTER TABLE application_schema.assurance_rule
+    ADD COLUMN IF NOT EXISTS report_columns jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE application_schema.recon_definition
+    ADD COLUMN IF NOT EXISTS report_columns jsonb NOT NULL DEFAULT '[]'::jsonb;

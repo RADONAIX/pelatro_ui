@@ -49,6 +49,13 @@ class _SourcePolicy(NamedTuple):
     tables: tuple[str, ...] | None = None
 
 
+#: The mediation source schemas most assurances read.
+_MEDIATION_SCHEMAS = ("msc_schema", "in_schema", "air_schema")
+
+#: Where feeds land before processing — staging, in the rating database.
+_STAGING_SCHEMA = "ra_stagingschema"
+
+
 # Which sources each assurance authors rules against.
 #
 #   Rating            -> two canonical rating tables, in the rating database.
@@ -89,6 +96,14 @@ _ASSURANCE_SOURCES: dict[str, tuple[_SourcePolicy, ...]] = {
     # and no rule could join them.
     "billing": (_SourcePolicy(None, ("air_schema", "sdp_schema")),),
     "charging": (_SourcePolicy(None, ("air_schema", "sdp_schema")),),
+    # These four read the mediation source schemas AND the staging area, which
+    # is where their feeds land before processing. Listed explicitly rather
+    # than left to DEFAULT_SOURCES so the staging schema is a stated choice for
+    # them, not a side effect of the fallback.
+    "partner": (_SourcePolicy(None, _MEDIATION_SCHEMAS + (_STAGING_SCHEMA,)),),
+    "migration": (_SourcePolicy(None, _MEDIATION_SCHEMAS + (_STAGING_SCHEMA,)),),
+    "network": (_SourcePolicy(None, _MEDIATION_SCHEMAS + (_STAGING_SCHEMA,)),),
+    "collection": (_SourcePolicy(None, _MEDIATION_SCHEMAS + (_STAGING_SCHEMA,)),),
 }
 
 #: Used by any assurance without an explicit mapping above.

@@ -1,4 +1,5 @@
 import { api } from "@/lib/api";
+import { notifyReportsChanged } from "./reports-signal";
 import type { CustomRule } from "./rule-authoring";
 
 // ---------------------------------------------------------------------------
@@ -30,6 +31,7 @@ function toBody(draft: RuleDraft) {
     params: draft.params ?? {},
     caseRouting: draft.caseRouting ?? null,
     comparison: draft.comparison ?? null,
+    reportColumns: draft.reportColumns ?? [],
   };
 }
 
@@ -48,6 +50,8 @@ export async function createRule(
   const { data } = await api.post<CustomRule>("/assurance-rules", toBody(draft), {
     params: { assurance, prefix },
   });
+  // Creating a rule can create its report; tell the Reports menu.
+  notifyReportsChanged();
   return data;
 }
 
@@ -56,6 +60,7 @@ export async function updateRule(id: string, draft: RuleDraft): Promise<CustomRu
     `/assurance-rules/${encodeURIComponent(id)}`,
     toBody(draft),
   );
+  notifyReportsChanged();
   return data;
 }
 
@@ -68,9 +73,13 @@ export async function setRuleState(
     null,
     { params: { state } },
   );
+  // Activation is what runs a rule for the first time, so this is the moment a
+  // report most often comes into existence.
+  notifyReportsChanged();
   return data;
 }
 
 export async function deleteRule(id: string): Promise<void> {
   await api.delete(`/assurance-rules/${encodeURIComponent(id)}`);
+  notifyReportsChanged();
 }

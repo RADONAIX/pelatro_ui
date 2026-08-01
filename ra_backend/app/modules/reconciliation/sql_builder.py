@@ -70,6 +70,11 @@ def _build_recon_ddl(plan: ReconPlan) -> str:
         lines.append(f"    {q(pair.output_left)} {pair.left.data_type}")
         lines.append(f"    {q(pair.output_right)} {pair.right.data_type}")
 
+    for column in plan.extra_left:
+        lines.append(f"    {q(column.name)} {column.data_type}")
+    for column in plan.extra_right:
+        lines.append(f"    {q(column.name)} {column.data_type}")
+
     lines.append("    \"status\" text NOT NULL")
     lines.append("    \"execution_time\" timestamptz NOT NULL")
     lines.append("    \"rule_id\" text NOT NULL")
@@ -218,6 +223,8 @@ def _side_subquery(plan: ReconPlan, side: str) -> str:
     for pair in list(pairs_key) + list(pairs_metric):
         source, alias = selector(pair)
         columns.append(f"{q(source)} AS {q(alias)}")
+    for column in (plan.extra_left if side == "l" else plan.extra_right):
+        columns.append(q(column.name))
     columns.append(f"1 AS {q(PRESENCE_COLUMN)}")
     body = ",\n                   ".join(columns)
     return f"""(
@@ -268,6 +275,11 @@ def _build_recon_insert(plan: ReconPlan) -> str:
     for pair in plan.metrics:
         projected.append(f"l.{q(pair.output_left)}")
         projected.append(f"r.{q(pair.output_right)}")
+    # Extra report columns ride through the same side subquery they came from.
+    for column in plan.extra_left:
+        projected.append(f"l.{q(column.name)}")
+    for column in plan.extra_right:
+        projected.append(f"r.{q(column.name)}")
 
     target_columns = [
         q(name)
@@ -277,7 +289,9 @@ def _build_recon_insert(plan: ReconPlan) -> str:
         q(name)
         for pair in plan.metrics
         for name in (pair.output_left, pair.output_right)
-    ] + [q("status"), q("execution_time"), q("rule_id"), q("execution_id"), q("remarks")]
+    ] + [q(c.name) for c in plan.extra_left] + [q(c.name) for c in plan.extra_right] + [
+        q("status"), q("execution_time"), q("rule_id"), q("execution_id"), q("remarks")
+    ]
 
     select_list = ",\n            ".join(projected)
 

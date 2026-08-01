@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { fetchReconReports } from "@/lib/assurance/reconciliation-api";
+import { useReportsVersion } from "@/lib/assurance/reports-signal";
 import type { ReportEntry } from "@/lib/reportsCatalog";
 
 export interface ReportCatalog {
@@ -67,6 +68,9 @@ export function catalogForScope(scope: string): ReportCatalog {
 export function useReportCatalog(scope: string): ReportCatalog {
   const base = catalogForScope(scope);
   const [generated, setGenerated] = useState<ReportEntry[]>([]);
+  // Bumped by the rules API after any mutation, so a rule authored in Controls
+  // shows up in this menu without a reload.
+  const version = useReportsVersion();
 
   useEffect(() => {
     let cancelled = false;
@@ -98,7 +102,7 @@ export function useReportCatalog(scope: string): ReportCatalog {
     return () => {
       cancelled = true;
     };
-  }, [scope]);
+  }, [scope, version]);
 
   return useMemo(
     () =>

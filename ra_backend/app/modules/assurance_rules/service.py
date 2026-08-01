@@ -38,6 +38,7 @@ _EDITABLE = (
     "params",
     "case_routing",
     "comparison",
+    "report_columns",
 )
 
 _ALL = ("id", "assurance_id", *_EDITABLE, "created_by", "created_at", "updated_at")
@@ -86,6 +87,7 @@ def _row_to_api(row: dict[str, Any]) -> dict[str, Any]:
         "params": row["params"] or {},
         "caseRouting": row["case_routing"],
         "comparison": row["comparison"],
+        "reportColumns": row["report_columns"] or [],
         "createdBy": row["created_by"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
@@ -115,6 +117,7 @@ def _payload_to_params(payload: Any) -> dict[str, Any]:
         "params": json.dumps(data.get("params") or {}),
         "case_routing": json.dumps(case_routing) if case_routing is not None else None,
         "comparison": json.dumps(comparison) if comparison is not None else None,
+        "report_columns": json.dumps(data.get("reportColumns") or []),
     }
 
 

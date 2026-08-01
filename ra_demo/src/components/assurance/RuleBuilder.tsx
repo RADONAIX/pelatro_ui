@@ -53,9 +53,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui-kit/SearchableSelect";
+import { ColumnMultiSelect, type ColumnOption } from "@/components/ui-kit/ColumnMultiSelect";
 import { cn } from "@/lib/utils";
 
 type Draft = Omit<CustomRule, "id" | "appId" | "createdAt">;
+
+/**
+ * The parameters a freshly-chosen category starts with.
+ *
+ * Only values the author is shown as already selected belong here: the operator
+ * dropdown presents "=" by default, so the parameter must exist to match, or
+ * the form disagrees with itself.
+ */
+function defaultParamsFor(category: RuleCategory): Record<string, string> {
+  return SINGLE_TABLE_CATEGORIES.has(category) ? { operator: "=" } : {};
+}
 
 const SEVERITIES: CustomRule["severity"][] = ["critical", "high", "medium"];
 const FREQUENCIES: CustomRule["frequency"][] = ["Real-time", "Hourly", "Daily", "Cycle"];
@@ -112,6 +124,7 @@ export function RuleBuilder({
   const [executionTime, setExecutionTime] = useState(DEFAULT_EXECUTION_TIME);
   const [state, setState] = useState<CustomRule["state"]>("Draft");
   const [params, setParams] = useState<Record<string, string>>({});
+  const [reportColumns, setReportColumns] = useState<string[]>([]);
   // Kept mounted across category changes so switching away and back — or
   // toggling Single/Multiple — doesn't discard a half-built comparison.
   const [comparison, setComparison] = useState<RuleComparison>(emptyComparison);
@@ -232,6 +245,7 @@ export function RuleBuilder({
     setExecutionTime(rule?.executionTime || DEFAULT_EXECUTION_TIME);
     setState(rule?.state ?? "Draft");
     setParams(rule?.params ?? {});
+    setReportColumns(rule?.reportColumns ?? []);
     // A rule saved before the comparison shape existed, or one of a
     // non-comparison category, has no block to restore — fall back to an empty
     // one rather than leaving the previous rule's tables on screen.
@@ -346,8 +360,13 @@ export function RuleBuilder({
               <Select
                 value={category}
                 onValueChange={(v) => {
-                  setCategory(v as RuleCategory);
-                  setParams({});
+                  const next = v as RuleCategory;
+                  setCategory(next);
+                  // Switching category invalidates the old parameters, but
+                  // clearing them outright dropped the ones the new category
+                  // REQUIRES — a Threshold rule was left with no operator, and
+                  // the only symptom was a disabled Create button.
+                  setParams(defaultParamsFor(next));
                 }}
               >
                 <SelectTrigger>
@@ -501,6 +520,15 @@ export function RuleBuilder({
               </div>
             </div>
           )}
+
+          <ReportColumnsPicker
+            assurance={app.id}
+            category={category}
+            params={params}
+            comparison={comparison}
+            value={reportColumns}
+            onChange={setReportColumns}
+          />
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -823,6 +851,19 @@ function SingleTableEditor({
   const table = value.table ?? "";
   const hint = (key: string) => fields.find((f) => f.key === key)?.placeholder ?? "";
 
+  // Seed the operator into the PARAMETERS, not just into the dropdown.
+  //
+  // Defaulting only the displayed value left the form looking complete — "="
+  // visible in the trigger — while validation still saw no operator and kept
+  // Create disabled, with nothing on screen to say which field was at fault.
+  // Equality is the right default: it is the comparison every threshold rule
+  // here has wanted, and an author who means something else picks it.
+  useEffect(() => {
+    if (!value.operator) onChange({ ...value, operator: "=" });
+    // Runs on mount and whenever an operator-less value arrives — editing a
+    // rule authored before this field existed hits exactly that path.
+  }, [value, onChange]);
+
   useEffect(() => {
     let active = true;
     setTables([]);
@@ -900,7 +941,7 @@ function SingleTableEditor({
         <div className="space-y-1.5 sm:w-28">
           <Label>Operator</Label>
           <Select
-            value={value.operator || "="}
+            value={value.operator ?? ""}
             onValueChange={(v) => onChange({ ...value, operator: v })}
           >
             <SelectTrigger aria-invalid={!value.operator}>
@@ -1285,3 +1326,152 @@ const NONE_VALUE = "__none__";
 
 /** The same restriction, for "raise the case unassigned" — stored as "". */
 const UNASSIGNED_VALUE = "__unassigned__";
+
+
+// ---------------------------------------------------------------------------
+// Which source columns the report carries.
+//
+// Available for every rule that names a table. The columns the RULE itself uses
+// — its keys, its metrics, the attribute it checks — are shown locked: they are
+// always in the report, and hiding them would leave the author wondering where
+// the extra columns came from.
+// ---------------------------------------------------------------------------
+
+function ReportColumnsPicker({
+  assurance,
+  category,
+  params,
+  comparison,
+  value,
+  onChange,
+}: {
+  assurance: string;
+  category: RuleCategory;
+  params: Record<string, string>;
+  comparison: RuleComparison;
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const isComparison = COMPARISON_CATEGORIES.has(category);
+  const isFileLog = FILE_LOG_CATEGORIES.has(category);
+  const isSingleTable = SINGLE_TABLE_CATEGORIES.has(category);
+
+  const [leftCols, setLeftCols] = useState<string[]>([]);
+  const [rightCols, setRightCols] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // A reconciliation reads two tables; everything else reads one. The table id
+  // lives in a different place per category, which is the only branching here.
+  const table1 = isComparison ? comparison.table1 : params.table ?? "";
+  const table2 = isComparison && comparison.mode === "Multiple" ? comparison.table2 : "";
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!table1) {
+      setLeftCols([]);
+      setRightCols([]);
+      return;
+    }
+    setLoading(true);
+    const fetcher = isFileLog ? fetchFileLogColumns : (id: string) => fetchTableColumns(assurance, id);
+    Promise.all([fetcher(table1), table2 ? fetcher(table2) : Promise.resolve([])])
+      .then(([a, b]) => {
+        if (cancelled) return;
+        setLeftCols(a);
+        setRightCols(b);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLeftCols([]);
+        setRightCols([]);
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [assurance, isFileLog, table1, table2]);
+
+  // Columns the rule already uses. Locked, because the report cannot omit them.
+  const locked = useMemo(() => {
+    const map = new Map<string, string>();
+    if (isComparison) {
+      for (const k of comparison.keys) {
+        if (k.left) map.set(`1:${k.left}`, "key");
+        if (k.right) map.set(`2:${k.right}`, "key");
+      }
+      for (const m of comparison.metrics) {
+        if (m.left) map.set(`1:${m.left}`, "metric");
+        if (m.right) map.set(`2:${m.right}`, "metric");
+      }
+    } else {
+      for (const key of ["attribute", "sequenceField", "partitionBy"]) {
+        const name = params[key];
+        if (name) map.set(name, key === "partitionBy" ? "partition" : "checked");
+      }
+    }
+    return map;
+  }, [isComparison, comparison, params]);
+
+  const options: ColumnOption[] = useMemo(() => {
+    const build = (cols: string[], side: "1" | "2" | null, group?: string) =>
+      cols.map((c) => {
+        const key = side ? `${side}:${c}` : c;
+        return {
+          value: key,
+          label: c,
+          group,
+          locked: locked.has(key),
+          lockedReason: locked.get(key),
+        };
+      });
+    return isComparison
+      ? [
+          ...build(leftCols, "1", "Table 1"),
+          ...build(rightCols, "2", "Table 2"),
+        ]
+      : build(leftCols, null);
+  }, [isComparison, leftCols, rightCols, locked]);
+
+  // Nothing to offer until a table is chosen, and nothing to offer at all for a
+  // category with no table — saying so beats an empty dropdown.
+  const hasTable = !!table1;
+  const supported = isComparison || isFileLog || isSingleTable;
+
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+          Report columns
+        </p>
+        {supported && hasTable && (
+          <p className="text-[11px] text-muted-foreground">
+            {options.filter((o) => o.locked).length} used by the rule
+          </p>
+        )}
+      </div>
+
+      <ColumnMultiSelect
+        options={options}
+        // Locked values are implicit, so they are never stored as choices.
+        value={value.filter((v) => !locked.has(v))}
+        onChange={onChange}
+        disabled={!supported || !hasTable || loading}
+        placeholder={
+          !supported
+            ? "This category has no source table"
+            : !hasTable
+              ? "Pick a table first"
+              : loading
+                ? "Loading columns…"
+                : "Add columns…"
+        }
+      />
+
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {supported
+          ? "The columns this rule uses are always reported. Add any others you want to see alongside them."
+          : "Only rules that read a table produce a column-based report."}
+      </p>
+    </div>
+  );
+}

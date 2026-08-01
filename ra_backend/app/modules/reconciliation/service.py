@@ -104,6 +104,7 @@ async def compile_and_run(
         # authored rule.
         "execution_time": rule.get("executionTime") or "00:00",
         "case_routing": rule.get("caseRouting"),
+        "report_columns": rule.get("reportColumns") or [],
     }
     if kind == KIND_RECONCILIATION:
         plan = await compiler.compile_rule(

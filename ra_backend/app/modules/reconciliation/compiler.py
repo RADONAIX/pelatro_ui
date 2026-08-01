@@ -176,6 +176,7 @@ async def compile_rule(
     severity: str = "medium",
     execution_time: str = "00:00",
     case_routing: dict | None = None,
+    report_columns: list[str] | None = None,
 ) -> ReconPlan:
     """Authored rule -> validated ReconPlan. Raises on anything unexecutable."""
     table1 = (comparison or {}).get("table1") or ""
@@ -242,6 +243,24 @@ async def compile_rule(
     business_columns = [c for pair in keys for c in (pair.output_left, pair.output_right)]
     business_columns += [c for pair in metrics for c in (pair.output_left, pair.output_right)]
 
+    # Extra report columns, tagged with the side they came from — the same name
+    # can exist on both tables, so "amount" alone is ambiguous. A name that no
+    # longer exists is dropped rather than failing the whole rule.
+    extra_left: list[Column] = []
+    extra_right: list[Column] = []
+    for raw_name in report_columns or []:
+        side, _, column_name = raw_name.partition(":")
+        if not column_name:
+            side, column_name = "1", raw_name
+        pool = left_columns if side == "1" else right_columns
+        bucket = extra_left if side == "1" else extra_right
+        column = pool.get(column_name)
+        if column is None or column.name in taken:
+            continue
+        taken.add(column.name)
+        bucket.append(column)
+        business_columns.append(column.name)
+
     plan = ReconPlan(
         rule_id=rule_id,
         assurance_id=assurance_id,
@@ -251,6 +270,8 @@ async def compile_rule(
         keys=keys,
         metrics=metrics,
         tolerance_pct=tolerance,
+        extra_left=extra_left,
+        extra_right=extra_right,
         output_schema=settings.recon_output_schema,
         output_table=output_table_name(rule_id),
         report_key=report_key_for(rule_id),
@@ -286,6 +307,10 @@ async def compile_sequence_rule(
     severity: str = "medium",
     execution_time: str = "00:00",
     case_routing: dict | None = None,
+    # A sequence report is a folded series — one row per counter value, not per
+    # source row — so per-row columns have nowhere to go. Accepted and ignored
+    # so callers can pass one `common` dict to every compiler.
+    report_columns: list[str] | None = None,
 ) -> ReconPlan:
     """A Sequence or Duplicate rule -> a validated plan.
 
@@ -379,6 +404,7 @@ async def compile_row_rule(
     severity: str = "medium",
     execution_time: str = "00:00",
     case_routing: dict | None = None,
+    report_columns: list[str] | None = None,
 ) -> ReconPlan:
     """A Duplicate or Threshold rule -> a validated plan.
 
@@ -422,10 +448,12 @@ async def compile_row_rule(
     value = params.get("value")
     if kind == KIND_THRESHOLD:
         if not operator:
-            raise ValidationFailedError(
-                "Pick a comparison operator.",
-                details={"allowed": sorted(row_rules.OPERATORS)},
-            )
+            # Equality, matching what the builder shows preselected. Refusing
+            # instead left rules saved by any older client permanently
+            # uncompilable, with a report that simply never appeared — and the
+            # author had already been shown "=" as their choice.
+            operator = "="
+            log.info("threshold_operator_defaulted", rule_id=rule_id, operator=operator)
         if operator not in row_rules.OPERATORS:
             raise ValidationFailedError(
                 f"'{operator}' is not a comparison operator.",
@@ -438,7 +466,12 @@ async def compile_row_rule(
     ordered = [columns[name] for name in columns]
     order_column = next((c for c in _ORDER_CANDIDATES if c in columns), None)
 
+    # Extra report columns: keep only the ones that exist, silently dropping a
+    # stale name rather than failing a rule over a column someone removed.
+    extra = [name for name in (report_columns or []) if name in columns]
+
     options = RowRuleOptions(
+        extra_columns=extra,
         attribute=attribute,
         partition_column=partition if kind == KIND_DUPLICATE else None,
         operator=operator if kind == KIND_THRESHOLD else None,

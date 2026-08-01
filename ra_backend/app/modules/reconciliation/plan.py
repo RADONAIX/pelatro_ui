@@ -175,6 +175,8 @@ class RowRuleOptions:
     #: Decides which row of a repeated value counts as the first occurrence.
     order_column: str | None = None
     source_columns: list["Column"] = field(default_factory=list)
+    #: Extra columns the author asked for, on top of this kind's own set.
+    extra_columns: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -183,6 +185,7 @@ class RowRuleOptions:
             "operator": self.operator,
             "value": self.value,
             "orderColumn": self.order_column,
+            "extraColumns": list(self.extra_columns),
             "sourceColumns": [
                 {"name": c.name, "dataType": c.data_type} for c in self.source_columns
             ],
@@ -196,6 +199,7 @@ class RowRuleOptions:
             operator=raw.get("operator"),
             value=raw.get("value"),
             order_column=raw.get("orderColumn"),
+            extra_columns=raw.get("extraColumns") or [],
             source_columns=[
                 Column(name=c["name"], data_type=c["dataType"], numeric=False)
                 for c in raw.get("sourceColumns", [])
@@ -248,6 +252,12 @@ class ReconPlan:
     #: repository store exactly what ran.
     ddl: str = ""
     insert_sql: str = ""
+
+    #: Extra source columns the author asked the report to carry, resolved to
+    #: real columns. For a reconciliation each is tagged with the side it came
+    #: from, because the same name can exist on both.
+    extra_left: list[Column] = field(default_factory=list)
+    extra_right: list[Column] = field(default_factory=list)
 
     #: Output-table column order: keys (both sides), metrics (both sides),
     #: then SYSTEM_COLUMNS. Report views project this same order.

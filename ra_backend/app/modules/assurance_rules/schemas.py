@@ -53,6 +53,10 @@ class RuleBase(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     caseRouting: CaseRouting | None = None
     comparison: RuleComparison | None = None
+    #: Extra source columns the report should carry, beyond the ones the rule
+    #: uses. "1:col"/"2:col" for a two-table reconciliation; bare names for a
+    #: single-table rule.
+    reportColumns: list[str] = Field(default_factory=list)
 
 
 class RuleCreate(RuleBase):

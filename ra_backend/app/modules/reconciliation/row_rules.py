@@ -73,19 +73,40 @@ REPORT_COLUMNS = ("filename", "batch_id", "file_timestamp")
 
 
 def report_source_columns(options: RowRuleOptions) -> list[Column]:
-    """The source columns this report projects, in REPORT_COLUMNS order.
+    """The source columns this report projects.
 
-    Only the ones the source table actually has: not every table carries all
-    three, and a rule over one that carries none would otherwise produce a
-    report of nothing but a status. In that case the checked attribute stands
-    in, so the row is still identifiable.
+    A FILE log is reported by file identity — name, batch, timestamp — because
+    that is what identifies the offending file and the other fifty columns are
+    noise.
+
+    Any other table has no such identity, so the whole row is reported: the
+    question "which rows breached" is only answerable from the row itself. A
+    rule over an MSC table would otherwise produce a report of one column and a
+    status, which says nothing about what breached.
     """
     by_name = {c.name: c for c in options.source_columns}
+
+    if options.extra_columns:
+        # An explicit choice wins over every default. The rule's OWN columns are
+        # still forced in — they are why the row is in the report at all — then
+        # the author's picks, in the order they chose them.
+        base = [
+            by_name[name]
+            for name in (options.attribute, options.partition_column)
+            if name and name in by_name
+        ]
+        seen = {c.name for c in base}
+        for name in options.extra_columns:
+            column = by_name.get(name)
+            if column is not None and column.name not in seen:
+                base.append(column)
+                seen.add(column.name)
+        return base
+
+    # No choice made: a file log reports file identity, anything else reports
+    # the whole row, because nothing narrower is knowably useful.
     chosen = [by_name[name] for name in REPORT_COLUMNS if name in by_name]
-    if chosen:
-        return chosen
-    fallback = by_name.get(options.attribute)
-    return [fallback] if fallback else list(options.source_columns[:1])
+    return chosen or list(options.source_columns)
 
 
 def output_columns(options: RowRuleOptions) -> list[str]:

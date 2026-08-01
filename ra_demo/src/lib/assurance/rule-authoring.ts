@@ -119,6 +119,22 @@ export const emptyCaseRouting = (severity: CustomRule["severity"]): CaseRouting 
   breachThreshold: DEFAULT_BREACH_THRESHOLD,
 });
 
+/**
+ * What the engine did with a rule when it was saved.
+ *
+ * Present only for the categories that compile to something executable; a
+ * Threshold rule that cannot compile still saves and reports why here.
+ */
+export type RuleOutcome = {
+  executed?: boolean;
+  reason?: string;
+  error?: string;
+  counts?: Record<string, number>;
+  case?: { raised?: boolean; reference?: string | null } | null;
+  outputTable?: string;
+  reportKey?: string;
+};
+
 export type CustomRule = {
   id: string;
   appId: string;
@@ -146,7 +162,15 @@ export type CustomRule = {
    * localStorage from before this shape existed still parse.
    */
   comparison?: RuleComparison;
+  /**
+   * Extra source columns to carry into the report, beyond the ones the rule
+   * itself uses. Qualified "1:col" / "2:col" for a two-table reconciliation,
+   * bare column names for a single-table rule.
+   */
+  reportColumns?: string[];
   createdAt: string;
+  /** Set by the server on create, update and activate. */
+  reconciliation?: RuleOutcome;
 };
 
 export const emptyComparison = (): RuleComparison => ({
@@ -317,9 +341,13 @@ export function useCustomRules(appId: string) {
   const toggleState = useCallback(
     async (id: string) => {
       const current = rules.find((r) => r.id === id);
-      if (!current) return;
+      if (!current) return undefined;
       const saved = await setRuleState(id, current.state === "Active" ? "Draft" : "Active");
       setRules((prev) => prev.map((r) => (r.id === id ? saved : r)));
+      // Returned so the caller can report what activation DID: activating is
+      // what compiles and first runs a rule, and its outcome — rows reported,
+      // or why it could not build — arrives on this response.
+      return saved;
     },
     [rules],
   );

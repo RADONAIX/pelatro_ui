@@ -117,7 +117,7 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
     // written to localStorage: the id, and for a Reconciliation rule the
     // compiled output, only exist once the server has answered.
     const saved = await addRule(draft, app.prefix);
-    toast.success(`${saved.id} saved`, { description: `Stored against ${app.name}.` });
+    reportOutcome(saved);
 
     // Case registration stays best-effort and off the critical path: if it
     // fails the rule still exists, and raising a case registers on demand.
@@ -128,6 +128,42 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
         description: (e as Error).message,
       });
     }
+  };
+
+  /**
+   * Say what the engine DID with the rule, not just that it saved.
+   *
+   * Reconciliation, Sequence, Duplicate and Threshold rules compile to
+   * executable SQL, and that can fail — a dropped table, a column that no
+   * longer exists, a missing operator. The rule still saves, because it is
+   * valid metadata; without this the author saw a plain success toast and an
+   * empty Reports menu, with the reason only in the server log.
+   */
+  const reportOutcome = (saved: CustomRule) => {
+    const outcome = saved.reconciliation;
+    if (!outcome) {
+      toast.success(`${saved.id} saved`, { description: `Stored against ${app.name}.` });
+      return;
+    }
+    if (outcome.error) {
+      toast.error(`${saved.id} saved, but its report could not be built`, {
+        description: outcome.error,
+        duration: 10_000,
+      });
+      return;
+    }
+    if (!outcome.executed) {
+      toast.success(`${saved.id} saved`, {
+        description: outcome.reason ?? "Set it Active to run it.",
+      });
+      return;
+    }
+    const total = outcome.counts?.total ?? 0;
+    toast.success(`${saved.id} ran — ${total.toLocaleString()} row(s) reported`, {
+      description: outcome.case?.raised
+        ? `Case ${outcome.case.reference ?? "raised"}.`
+        : "Report available under Reports & Certified Exports.",
+    });
   };
 
   const raiseCase = async (rule: CustomRule) => {
@@ -291,8 +327,7 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
                         app={app}
                         rule={r}
                         onSubmit={async (draft) => {
-                          await editRule(r.id, draft);
-                          toast.success(`${r.id} updated`);
+                          reportOutcome(await editRule(r.id, draft));
                         }}
                         trigger={
                           <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
@@ -305,9 +340,11 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
                         size="sm"
                         className="h-6 px-2 text-xs"
                         onClick={() =>
-                          toggleState(r.id).catch((e: Error) =>
-                            toast.error(`Could not change ${r.id}`, { description: e.message }),
-                          )
+                          toggleState(r.id)
+                            .then((saved) => saved && reportOutcome(saved))
+                            .catch((e: Error) =>
+                              toast.error(`Could not change ${r.id}`, { description: e.message }),
+                            )
                         }
                       >
                         {r.state === "Active" ? "Pause" : "Activate"}
