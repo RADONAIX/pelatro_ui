@@ -3,15 +3,12 @@ import {
   BookOpenCheck,
   Briefcase,
   FileBarChart2,
-  FileCog,
-  FileSpreadsheet,
   FlaskConical,
   Gauge,
   LayoutDashboard,
   Library,
   Package,
   PlayCircle,
-  Plug,
   ShieldCheck,
 } from "lucide-react";
 
@@ -90,19 +87,12 @@ export const RATING_NAV: RatingNavItem[] = [
         phase: 1,
       },
       { to: "/rating/rules", label: "Rule Catalogue", icon: Library, phase: 1 },
-      {
-        to: "/rating/rules/new",
-        label: "Create Rule",
-        icon: FileCog,
-        phase: 1,
-      },
-      {
-        to: "/rating/rules/import",
-        label: "Import Rules",
-        icon: FileSpreadsheet,
-        phase: 1,
-      },
-      { to: "/rating/connectors", label: "Rule Sources", icon: Plug, phase: 1 },
+      // Create Rule (/rating/rules/new), Import Rules (/rating/rules/import)
+      // and Rule Sources (/rating/connectors) are deliberately not listed here.
+      // All three are entered from Rule Operations, which exists to be that
+      // starting point — its three cards link straight to them — so a sidebar
+      // row was a second door to a room you are already standing in. The routes
+      // are untouched and still resolve by URL and from those cards.
       {
         to: "/rating/approvals",
         label: "Approvals",
