@@ -64,6 +64,13 @@ export type AssuranceDashboard = {
   trend: TrendPoint[];
   /** Row 1 centre — common to every assurance. */
   revenueAtRisk: Point[];
+  /**
+   * Cadence of `revenueAtRisk`, when it is not daily.
+   *
+   * Usage's money is recorded monthly, so its series would otherwise sit under
+   * a "Daily" subtitle that misstates what one point covers.
+   */
+  riskTrendSubtitle?: string;
   /** Row 1 right. */
   exceptionCategories: NamedValue[];
   /** Row 2 left — dynamic title + entities. */

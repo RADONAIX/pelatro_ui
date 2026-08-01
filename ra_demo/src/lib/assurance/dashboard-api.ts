@@ -10,13 +10,19 @@ import { type AssuranceDashboard, currencySymbol } from "./dashboard-config";
 // the one thing the server cannot know: which glyph stands for its ISO currency
 // code. See `withCurrency` below.
 //
-// Only Rating has a canonical results table today; the server 404s any other
-// assurance rather than returning an empty dashboard, and the hook keeps those
-// on the synthetic profiles.
+// Rating reads canonical_rating.rating_reconciliation and Usage reads
+// assurance.voice_sms_match_report; the server 404s any other assurance rather
+// than returning an empty dashboard, and the hook keeps those on the synthetic
+// profiles.
 // ---------------------------------------------------------------------------
 
 /** Assurance ids the API can serve. Everything else stays on local data. */
-export const LIVE_DASHBOARD_APP_IDS: ReadonlySet<string> = new Set(["rating"]);
+export const LIVE_DASHBOARD_APP_IDS: ReadonlySet<string> = new Set([
+  "rating",
+  // Usage reads assurance.voice_sms_match_report and returns this same shape,
+  // so it renders through the same six charts rather than a lookalike.
+  "usage",
+]);
 
 /**
  * Prefix the Revenue at Risk headline with the currency's symbol.

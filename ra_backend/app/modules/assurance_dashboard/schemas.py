@@ -72,6 +72,10 @@ class AssuranceDashboardOut(BaseModel):
     trendTitle: str
     trend: list[TrendPoint]
     revenueAtRisk: list[Point]
+    #: Cadence of `revenueAtRisk`, when it is not the daily one the panel
+    #: assumes. Usage's money is recorded monthly, and a monthly series under a
+    #: "Daily" subtitle would misstate what each point covers.
+    riskTrendSubtitle: str | None = None
     exceptionCategories: list[NamedValue]
     entitiesTitle: str
     entities: list[NamedValue]
