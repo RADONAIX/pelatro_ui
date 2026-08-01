@@ -66,6 +66,8 @@ export interface ReconPage {
   executionId: string | null;
   executedAt: string | null;
   statusFilter?: ReconStatus | null;
+  /** The free-text filter the server applied, echoed back. */
+  search?: string | null;
   /** "reconciliation" | "sequence" | "duplicate". */
   kind?: string;
   /** The statuses THIS report can produce — drives the filter chips. */
@@ -107,7 +109,13 @@ export async function fetchReconReports(assurance?: string): Promise<ReconReport
 
 export async function fetchReconPage(
   key: string,
-  opts: { status?: ReconStatus | null; limit: number; offset: number },
+  opts: {
+    status?: ReconStatus | null;
+    /** Matched against every column, server-side — see reportDownloadUrl. */
+    search?: string;
+    limit: number;
+    offset: number;
+  },
 ): Promise<ReconPage> {
   const { data } = await api.get<ReconPage>(
     `/reconciliation/reports/${encodeURIComponent(key)}`,
@@ -116,6 +124,7 @@ export async function fetchReconPage(
         limit: opts.limit,
         offset: opts.offset,
         ...(opts.status ? { status: opts.status } : {}),
+        ...(opts.search ? { search: opts.search } : {}),
       },
     },
   );
@@ -215,7 +224,63 @@ export async function executeRule(ruleId: string) {
  * is handed to the browser to download instead of being pulled through axios
  * into memory first.
  */
-export function reportDownloadUrl(executionId: string, fmt: "csv" | "excel"): string {
-  const base = api.defaults.baseURL ?? "/api";
-  return `${base}/reconciliation/reports/execution/${encodeURIComponent(executionId)}/download?fmt=${fmt}`;
+function downloadParams(
+  fmt: "csv" | "excel",
+  filters: { status?: ReconStatus | null; search?: string },
+): URLSearchParams {
+  const params = new URLSearchParams({ fmt });
+  // The download carries the SAME filters the screen shows. Downloading a
+  // filtered report and receiving every row is a quiet way to hand someone the
+  // wrong numbers.
+  if (filters.status) params.set("status", filters.status);
+  if (filters.search) params.set("search", filters.search);
+  return params;
+}
+
+/** The filename the server chose, or a sensible fallback. */
+function filenameFrom(disposition: unknown, fallback: string): string {
+  const match = /filename="?([^";]+)"?/.exec(String(disposition ?? ""));
+  return match?.[1] ?? fallback;
+}
+
+/**
+ * Download a stored report, authenticated.
+ *
+ * NOT a plain link. The download endpoint requires a bearer token, and a token
+ * in sessionStorage is only ever attached by the axios interceptor — a browser
+ * navigating to an `<a href>` sends no Authorization header, so every such
+ * click came back 401 and nothing was saved. The response is fetched here with
+ * the header attached and handed to the browser as a blob.
+ *
+ * The cost is that the file is buffered in memory rather than streamed to disk,
+ * which is why the server still streams its side: the alternative is a
+ * short-lived signed URL, worth adding if reports ever outgrow a browser's
+ * memory.
+ */
+export async function downloadReport(
+  executionId: string,
+  fmt: "csv" | "excel",
+  filters: { status?: ReconStatus | null; search?: string } = {},
+): Promise<void> {
+  const { data, headers } = await api.get<Blob>(
+    `/reconciliation/reports/execution/${encodeURIComponent(executionId)}/download?${downloadParams(fmt, filters)}`,
+    { responseType: "blob" },
+  );
+
+  const url = URL.createObjectURL(data);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filenameFrom(
+      headers?.["content-disposition"],
+      `${executionId.slice(0, 8)}.${fmt === "excel" ? "xls" : "csv"}`,
+    );
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    // Revoked on a tick, not immediately: Safari cancels a download whose
+    // object URL is released in the same task as the click.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
 }

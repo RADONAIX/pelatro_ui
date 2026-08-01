@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import csv
 import io
+import re
+from datetime import datetime, timezone
 from typing import Any
 
 from app.core.config import settings
@@ -251,6 +253,7 @@ async def read_report(
     report_key: str,
     *,
     status: str | None = None,
+    search: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -305,6 +308,7 @@ async def read_report(
         plan,
         execution_id=str(latest["execution_id"]),
         status=status,
+        search=search,
         limit=limit,
         offset=offset,
     )
@@ -322,6 +326,7 @@ async def read_report(
         "executionId": str(latest["execution_id"]),
         "executedAt": latest["started_at"],
         "statusFilter": status,
+        "search": search,
         **page,
     }
 
@@ -401,12 +406,43 @@ async def read_execution_report(
     return {**summary, "rows": page["rows"], "total": page["total"]}
 
 
-async def stream_report_csv(execution_id: str, *, with_bom: bool = False):
-    """The whole report as CSV, yielded in chunks.
+#: Characters a filename must not carry. Anything outside this set is replaced
+#: with an underscore — a report title is author-supplied text and may hold a
+#: slash, a quote or a newline, none of which belong in a Content-Disposition.
+_FILENAME_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def download_filename(summary: dict[str, Any], fmt: str) -> str:
+    """`<report name> <date_time>` with the right extension.
+
+    The timestamp is the EXECUTION's, not the moment of download: two people
+    saving the same report an hour apart should get the same file, and the name
+    should say which run the rows came from. Falls back to the download time
+    only when an execution has no recorded start.
+    """
+    name = _FILENAME_SAFE.sub("_", str(summary.get("ruleName") or summary.get("ruleId") or "report"))
+    started = summary.get("executionStart")
+    stamp = started if isinstance(started, datetime) else datetime.now(timezone.utc)
+    return f"{name.strip('_')}_{stamp.strftime('%Y%m%d_%H%M%S')}.{'xls' if fmt == 'excel' else 'csv'}"
+
+
+async def stream_report_csv(
+    execution_id: str,
+    *,
+    with_bom: bool = False,
+    status: str | None = None,
+    search: str | None = None,
+):
+    """The report as CSV, yielded in chunks.
 
     Never materialises the report: rows arrive from the database a page at a
     time and each page is turned into CSV text and released. Memory is flat
     whatever the row count.
+
+    `status` and `search` are the same filters the report screen applies, so
+    the download is what the screen shows rather than always the whole table —
+    downloading a filtered view and getting everything is a quiet way to hand
+    someone the wrong numbers.
     """
     report = await repository.get_report(execution_id)
     definition = await repository.get_definition(report["rule_id"])
@@ -426,7 +462,17 @@ async def stream_report_csv(execution_id: str, *, with_bom: bool = False):
 
     inline = report["report_json"]
     if inline is not None:
+        # A small report is stored inline, so its filtering happens here rather
+        # than in SQL. Same rules as the statement below: exact status, and a
+        # case-insensitive substring across every projected column.
+        needle = (search or "").strip().lower()
         for row in inline:
+            if status and str(row.get("status") or "") != status:
+                continue
+            if needle and not any(
+                needle in str(row.get(c) or "").lower() for c in columns
+            ):
+                continue
             yield to_row([row.get(c) for c in columns])
         return
 
@@ -434,7 +480,12 @@ async def stream_report_csv(execution_id: str, *, with_bom: bool = False):
     page_size = settings.recon_download_page_rows
     while True:
         page = await engine.fetch_results(
-            plan, execution_id=execution_id, limit=page_size, offset=offset
+            plan,
+            execution_id=execution_id,
+            status=status,
+            search=search,
+            limit=page_size,
+            offset=offset,
         )
         rows = page["rows"]
         if not rows:

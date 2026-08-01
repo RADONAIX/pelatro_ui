@@ -40,12 +40,19 @@ async def list_reports(
 async def read_report(
     report_key: str,
     status: str | None = Query(default=None, description=f"One of {', '.join(ALL_STATUSES)}"),
+    search: str | None = Query(
+        default=None,
+        max_length=200,
+        description="Free text matched against every column of the report.",
+    ),
     limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     _: Principal = Depends(require(PermKey.REPORTS, "view")),
 ) -> dict[str, Any]:
     """One page of the latest successful execution — keys, metrics, status."""
-    return await service.read_report(report_key, status=status, limit=limit, offset=offset)
+    return await service.read_report(
+        report_key, status=status, search=search, limit=limit, offset=offset
+    )
 
 
 @router.get("/reports/{report_key}/summary")
@@ -133,6 +140,8 @@ async def read_execution_report(
 async def download_execution_report(
     execution_id: str,
     fmt: str = Query(default="csv", pattern="^(csv|excel)$"),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=200),
     _: Principal = Depends(require(PermKey.REPORTS, "view")),
 ) -> StreamingResponse:
     """The whole report as a download.
@@ -146,9 +155,11 @@ async def download_execution_report(
     what streaming exists to avoid.
     """
     summary = await service.read_execution_report(execution_id, limit=0, offset=0)
-    filename = f"{summary['ruleId']}_{execution_id[:8]}.{'xls' if fmt == 'excel' else 'csv'}"
+    filename = service.download_filename(summary, fmt)
     return StreamingResponse(
-        service.stream_report_csv(execution_id, with_bom=fmt == "excel"),
+        service.stream_report_csv(
+            execution_id, with_bom=fmt == "excel", status=status, search=search
+        ),
         media_type="application/vnd.ms-excel" if fmt == "excel" else "text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

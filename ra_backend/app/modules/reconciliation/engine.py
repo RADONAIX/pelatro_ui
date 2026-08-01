@@ -362,27 +362,31 @@ async def fetch_results(
     *,
     execution_id: str,
     status: str | None = None,
+    search: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> dict[str, Any]:
     """One page of a reconciliation, plus the total for the same filter.
 
     Two statements, never per-row queries: the count and the page. Both hit the
-    (execution_id, status) index.
+    (execution_id, status) index. A free-text search cannot use that index —
+    it is an OR of ILIKEs across every projected column — so it scans the
+    execution's rows; that is the cost of searching a report by any column.
     """
     engine = _engine(plan.source_database)
     params: dict[str, Any] = {"execution_id": execution_id}
     if status:
         params["status"] = status
+    params.update(sql_builder.search_param(search))
 
     async with engine.connect() as conn:
         total_result = await conn.execute(
-            text(sql_builder.build_results_count(plan, status=status)), params
+            text(sql_builder.build_results_count(plan, status=status, search=search)), params
         )
         total = int(total_result.scalar() or 0)
 
         page_result = await conn.execute(
-            text(sql_builder.build_results_query(plan, status=status)),
+            text(sql_builder.build_results_query(plan, status=status, search=search)),
             {**params, "limit": limit, "offset": offset},
         )
         rows = [dict(r) for r in page_result.mappings()]

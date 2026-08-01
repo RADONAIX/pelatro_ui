@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Download, Play, RefreshCw } from "lucide-react";
+import { AlertTriangle, Download, Play, RefreshCw, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   RECON_STATUSES,
   fetchExecutionReport,
   fetchReconExecutions,
   fetchReconPage,
-  reportDownloadUrl,
+  downloadReport,
   runReconNow,
   type ExecutionSummary,
   type ReconExecution,
@@ -80,9 +80,14 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
   const [executions, setExecutions] = useState<ReconExecution[]>([]);
   const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [status, setStatus] = useState<ReconStatus | null>(null);
+  // What is typed, and what has been sent. Split so each keystroke does not
+  // become a query against a table that can hold millions of rows.
+  const [term, setTerm] = useState("");
+  const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -90,6 +95,7 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
     try {
       const next = await fetchReconPage(reportKey, {
         status,
+        search,
         limit: PAGE_SIZE,
         offset,
       });
@@ -112,7 +118,7 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
     } finally {
       setLoading(false);
     }
-  }, [reportKey, status, offset]);
+  }, [reportKey, status, search, offset]);
 
   useEffect(() => {
     void load();
@@ -122,7 +128,20 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
   // otherwise page 4 of one report opens page 4 of the next.
   useEffect(() => {
     setOffset(0);
-  }, [reportKey, status]);
+  }, [reportKey, status, search]);
+
+  // Debounced: typing "MISMATCH" is eight keystrokes and should be one query.
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(term.trim()), 300);
+    return () => clearTimeout(id);
+  }, [term]);
+
+  // A new report clears the previous one's search, which would otherwise carry
+  // over and show an empty table for a term from a different rule.
+  useEffect(() => {
+    setTerm("");
+    setSearch("");
+  }, [reportKey]);
 
   // The status vocabulary depends on the rule's kind, so it is taken from the
   // page rather than assumed; the reconciliation four are the fallback for a
@@ -151,6 +170,20 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
       toast.error("Reconciliation failed", { description: (e as Error).message });
     } finally {
       setRunning(false);
+    }
+  };
+
+  const download = async (executionId: string, fmt: "csv" | "excel") => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      await downloadReport(executionId, fmt, { status, search });
+    } catch (e) {
+      // Silence here would look identical to a browser that blocked the save,
+      // so the failure is stated.
+      toast.error("Download failed", { description: (e as Error).message });
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -196,6 +229,23 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* A plain link, not a fetch: the file is streamed and may be very
+              large, so the browser downloads it rather than the page pulling it
+              into memory first. Lives here rather than only inside the summary
+              strip below, which is absent for a report whose stored row never
+              got written. */}
+          {page?.executionId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={downloading}
+              onClick={() => void download(page.executionId!, "excel")}
+            >
+              <Download className="size-3.5" />
+              {downloading ? "Preparing…" : "Download Excel"}
+            </Button>
+          )}
           <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => void load()} disabled={loading}>
             <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
             Refresh
@@ -247,17 +297,25 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
             {/* Plain links, not fetches: the file is streamed and may be very
                 large, so the browser downloads it rather than the page pulling
                 it into memory first. */}
-            <Button asChild variant="outline" size="sm" className="h-8 gap-1.5">
-              <a href={reportDownloadUrl(summary.executionId, "csv")}>
-                <Download className="size-3.5" />
-                Download CSV
-              </a>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={downloading}
+              onClick={() => void download(summary.executionId, "csv")}
+            >
+              <Download className="size-3.5" />
+              Download CSV
             </Button>
-            <Button asChild variant="outline" size="sm" className="h-8 gap-1.5">
-              <a href={reportDownloadUrl(summary.executionId, "excel")}>
-                <Download className="size-3.5" />
-                Download Excel
-              </a>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              disabled={downloading}
+              onClick={() => void download(summary.executionId, "excel")}
+            >
+              <Download className="size-3.5" />
+              Download Excel
             </Button>
             <span className="self-center text-xs text-muted-foreground">
               {summary.reportCount.toLocaleString()} row
@@ -295,9 +353,32 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
             {s}
           </button>
         ))}
+        {/* Global search. Applied SERVER-side across every column of the
+            report, so it filters all rows rather than the 25 on screen — the
+            row count and the pager below reflect the match, not the page. */}
+        <div className="relative ml-auto w-64">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={term}
+            onChange={(e) => setTerm(e.target.value)}
+            placeholder="Search all columns…"
+            aria-label="Search this report"
+            className="h-8 w-full rounded border border-border bg-background pl-8 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/20"
+          />
+          {term && (
+            <button
+              onClick={() => setTerm("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
         {page && (
-          <span className="ml-auto text-xs text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {page.total.toLocaleString()} row{page.total === 1 ? "" : "s"}
+            {search && " matching"}
           </span>
         )}
       </div>
@@ -335,7 +416,9 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
                   colSpan={valueColumns.length + 1}
                   className="px-3 py-8 text-center text-sm text-muted-foreground"
                 >
-                  No rows for this filter.
+                  {search
+                    ? `No rows match "${search}".`
+                    : "No rows for this filter."}
                 </td>
               </tr>
             )}

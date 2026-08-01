@@ -31,48 +31,45 @@ from app.modules.reconciliation.plan import (
     KIND_RECONCILIATION,
     KIND_SEQUENCE,
     KIND_THRESHOLD,
-    STATUS_THRESHOLD_BREACH,
-    STATUS_GAP,
-    STATUS_DUPLICATE,
-    STATUS_MISMATCH,
-    STATUS_TABLE1_MISSING,
-    STATUS_TABLE2_MISSING,
+    STATUS_MATCH,
+    STATUS_PRESENT,
     ReconPlan,
 )
 
 log = get_logger("recon.cases")
 
-#: Which statuses count as a breach, per kind.
+#: The one HEALTHY status per kind. Everything else is a breach.
 #:
-#: A reconciliation breach is any row that is not a MATCH — a mismatch, or a
-#: record present on one side only. A sequence breach is a gap or a duplicate;
-#: PRESENT rows are the series behaving.
-_BREACH_STATUSES: dict[str, tuple[str, ...]] = {
-    KIND_RECONCILIATION: (
-        STATUS_MISMATCH,
-        STATUS_TABLE1_MISSING,
-        STATUS_TABLE2_MISSING,
-    ),
-    # A row-level rule only ever writes breaching rows — the report IS the
-    # breach set — so every row it returned counts.
-    KIND_DUPLICATE: (STATUS_DUPLICATE,),
-    KIND_THRESHOLD: (STATUS_THRESHOLD_BREACH,),
+#: Stated as what passes rather than as a list of what fails, deliberately. An
+#: enumeration of failure statuses silently under-counts the moment a kind
+#: gains an outcome nobody remembered to add here — and under-counting breaches
+#: means a case that should have been raised is not. Inverting it makes the
+#: safe direction the default: an unrecognised status is a breach.
+_HEALTHY_STATUS: dict[str, str] = {
+    KIND_RECONCILIATION: STATUS_MATCH,
+    # A sequence's series is behaving when the expected value is PRESENT.
+    KIND_SEQUENCE: STATUS_PRESENT,
 }
-_SEQUENCE_BREACHES = (STATUS_GAP, STATUS_DUPLICATE)
 
 
 def breached_rows(plan: ReconPlan, counts: dict[str, int]) -> int:
     """How many rows of this run count as a breach.
 
-    A row-level rule only ever writes breaching rows — the report IS the breach
-    set — so the total counts, whatever those rows happen to be labelled. That
-    matters because a threshold rule labels its rows with the rule's own name,
-    which no fixed list could enumerate.
+    Everything that is not the kind's healthy status. For a reconciliation that
+    is every row that is not a MATCH — a mismatch, or a record present on one
+    side only, or any outcome added later.
+
+    A row-level rule (Duplicate, Threshold) only ever writes breaching rows —
+    the report IS the breach set — so its total counts, whatever those rows are
+    labelled. That matters because a threshold rule labels its rows with the
+    rule's own name, which no fixed list could enumerate.
     """
+    total = int(counts.get("total", 0))
     if plan.kind in (KIND_DUPLICATE, KIND_THRESHOLD):
-        return int(counts.get("total", 0))
-    statuses = _BREACH_STATUSES.get(plan.kind, _SEQUENCE_BREACHES)
-    return sum(int(counts.get(status, 0)) for status in statuses)
+        return total
+    healthy = int(counts.get(_HEALTHY_STATUS.get(plan.kind, STATUS_MATCH), 0))
+    # Never negative: `total` is the authority, and a missing count reads as 0.
+    return max(0, total - healthy)
 
 
 def should_raise(plan: ReconPlan, counts: dict[str, int]) -> tuple[bool, int]:

@@ -318,8 +318,47 @@ def build_summary(plan: ReconPlan) -> str:
         GROUP BY status"""
 
 
+def build_results_filter(plan: ReconPlan, *, status: str | None, search: str | None) -> str:
+    """The WHERE shared by the page and its count.
+
+    One function so a filter can never apply to the rows but not the total —
+    which would page a filtered report against an unfiltered row count.
+
+    The search term is bound, never interpolated; only the COLUMN NAMES are
+    written into the statement, and those come from the plan. Every column is
+    cast to text so a numeric or timestamp column is searchable by how it
+    reads, and NULL is coalesced away because `NULL ILIKE …` is NULL and would
+    drop the row from an OR chain that another column matched.
+    """
+    where = "WHERE execution_id = CAST(:execution_id AS uuid)"
+    if status:
+        where += " AND status = :status"
+    if search:
+        columns = [*plan.business_columns, "status"]
+        matches = " OR ".join(f"coalesce({q(name)}::text, '') ILIKE :search" for name in columns)
+        where += f" AND ({matches})"
+    return where
+
+
+def search_param(search: str | None) -> dict[str, str]:
+    """The bound value for `build_results_filter`'s :search placeholder.
+
+    Wildcards in the user's own term are escaped: without this, typing `%`
+    matches every row and `_` matches any character, so a search for an
+    underscore in a filename would silently widen rather than narrow.
+    """
+    if not search:
+        return {}
+    escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return {"search": f"%{escaped}%"}
+
+
 def build_results_query(
-    plan: ReconPlan, *, status: str | None, order_by: str | None = None
+    plan: ReconPlan,
+    *,
+    status: str | None,
+    order_by: str | None = None,
+    search: str | None = None,
 ) -> str:
     """The report view: only the selected keys, metrics and status.
 
@@ -328,9 +367,7 @@ def build_results_query(
     chose to compare.
     """
     columns = ", ".join(q(name) for name in plan.business_columns)
-    where = "WHERE execution_id = CAST(:execution_id AS uuid)"
-    if status:
-        where += " AND status = :status"
+    where = build_results_filter(plan, status=status, search=search)
     # Whitelisted against the plan's own columns — an unknown or absent value
     # orders by nothing rather than reaching the identifier quoter.
     ordering = (
@@ -345,10 +382,10 @@ def build_results_query(
         LIMIT :limit OFFSET :offset"""
 
 
-def build_results_count(plan: ReconPlan, *, status: str | None) -> str:
-    where = "WHERE execution_id = CAST(:execution_id AS uuid)"
-    if status:
-        where += " AND status = :status"
+def build_results_count(
+    plan: ReconPlan, *, status: str | None, search: str | None = None
+) -> str:
+    where = build_results_filter(plan, status=status, search=search)
     return f"""SELECT count(*) AS n
         FROM {qualified(plan.output_schema, plan.output_table)}
         {where}"""
