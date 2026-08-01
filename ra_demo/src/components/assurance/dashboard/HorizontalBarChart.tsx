@@ -22,7 +22,7 @@ export function HorizontalBarChart({
   const max = Math.max(...data.map((d) => d.value), 1);
 
   return (
-    <div className="flex h-[268px] flex-col justify-center gap-3.5 px-4">
+    <div className="flex min-h-[268px] flex-col justify-center gap-3.5 px-4 py-3">
       {data.map((d) => (
         <div key={d.name}>
           <div className="flex items-baseline justify-between gap-3">

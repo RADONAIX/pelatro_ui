@@ -17,6 +17,7 @@ import { RiskLineChart } from "./RiskLineChart";
 import { DonutChart } from "./DonutChart";
 import { HorizontalBarChart } from "./HorizontalBarChart";
 import { VIZ, compact } from "./viz";
+import { UsageDashboard } from "./UsageDashboard";
 
 // ---------------------------------------------------------------------------
 // The executive dashboard, shared by all eight assurance apps.
@@ -36,6 +37,17 @@ import { VIZ, compact } from "./viz";
 // ---------------------------------------------------------------------------
 
 export function ExecutiveDashboard({ app }: { app: AppMetadata }) {
+  // Usage has real assurance output behind it — the MSC-versus-IN match report
+  // — so it renders from that rather than from the shared dashboard below.
+  //
+  // The branch sits in its own component with no hooks above it: returning
+  // early from a component that then calls useAssuranceDashboard would change
+  // the hook count when the selected app changes.
+  if (app.id === "usage") return <UsageDashboard app={app} />;
+  return <GeneratedDashboard app={app} />;
+}
+
+function GeneratedDashboard({ app }: { app: AppMetadata }) {
   const {
     dashboard: d,
     loading,

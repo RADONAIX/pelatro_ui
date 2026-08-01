@@ -60,14 +60,9 @@ _STAGING_SCHEMA = "ra_stagingschema"
 #
 #   Rating            -> two canonical rating tables, in the rating database.
 #   Usage             -> MSC and IN, both in the rating database.
-#   Billing / Charging-> SDP and MSC. NOTE these are in DIFFERENT databases:
-#                        the SDP tables live in rafms, msc_schema only exists in
-#                        rafms_rating (rafms_rating.sdp_schema is empty). Both
-#                        are offered because both are legitimately in scope, but
-#                        a single rule cannot pair one with the other — the
-#                        reconciliation runs as one server-side join, which
-#                        cannot span databases, and the compiler says so rather
-#                        than failing at execution.
+#   Billing / Charging-> AIR and SDP in the rating database, plus staging for
+#                        Billing. All in one database, so any two of them can be
+#                        paired in a single rule.
 #
 # An assurance with no entry here falls back to DEFAULT_SOURCES rather than
 # erroring: every scope's Rule Explorer must be able to list tables, even one
@@ -94,7 +89,12 @@ _ASSURANCE_SOURCES: dict[str, tuple[_SourcePolicy, ...]] = {
     # RATING database. Both in one database, so a rule can pair them — unlike
     # the earlier msc/sdp split, where the two sides sat in different databases
     # and no rule could join them.
-    "billing": (_SourcePolicy(None, ("air_schema", "sdp_schema")),),
+    # Billing also reads the staging area: its feeds land there before
+    # processing, so a billing control is entitled to compare a staged file
+    # against what AIR or SDP made of it. Staging is in the same (rating)
+    # database as those two, so such a pairing still runs as one server-side
+    # join.
+    "billing": (_SourcePolicy(None, ("air_schema", "sdp_schema", _STAGING_SCHEMA)),),
     "charging": (_SourcePolicy(None, ("air_schema", "sdp_schema")),),
     # These four read the mediation source schemas AND the staging area, which
     # is where their feeds land before processing. Listed explicitly rather

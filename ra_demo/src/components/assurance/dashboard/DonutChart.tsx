@@ -13,12 +13,23 @@ export function DonutChart({
   data,
   centerLabel,
   valueFormatter = compact,
+  colors,
 }: {
   data: NamedValue[];
   centerLabel: string;
   valueFormatter?: (n: number) => string;
+  /**
+   * Per-slice colours, positional, overriding the categorical order.
+   *
+   * Needed when a slice means the same thing as a series in a NEIGHBOURING
+   * panel: "matched" drawn green in one card and orange in the next reads as
+   * two different things. Passing colours here keeps one meaning to one colour
+   * across the page.
+   */
+  colors?: readonly string[];
 }) {
   const total = data.reduce((sum, d) => sum + d.value, 0) || 1;
+  const colorAt = (i: number) => colors?.[i] ?? categorical(i);
 
   return (
     <div className="flex h-[268px] flex-col gap-2 px-3">
@@ -37,7 +48,7 @@ export function DonutChart({
               isAnimationActive={false}
             >
               {data.map((d, i) => (
-                <Cell key={d.name} fill={categorical(i)} />
+                <Cell key={d.name} fill={colorAt(i)} />
               ))}
             </Pie>
             <Tooltip
@@ -65,7 +76,7 @@ export function DonutChart({
           <li key={d.name} className="flex items-center gap-2 text-[11.5px]">
             <span
               className="size-2 shrink-0 rounded-[3px]"
-              style={{ background: categorical(i) }}
+              style={{ background: colorAt(i) }}
             />
             <span className="min-w-0 flex-1 truncate text-muted-foreground">
               {d.name}
