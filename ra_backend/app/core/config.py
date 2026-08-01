@@ -221,6 +221,11 @@ class Settings(BaseSettings):
     app_rules_db_name: str = "rafms_rating"
     app_rules_schema: str = "application_schema"
 
+    # The canonical rating model, in the same database. Read-only: the rating
+    # service owns it as a mirror target, and the executive dashboard only
+    # aggregates over it.
+    ra_canonical_schema: str = "canonical_rating"
+
     # --- Reconciliation rule engine ----------------------------------------
     # Generated reconciliation tables live in this schema, in the SAME database
     # as their source tables — the load is one server-side INSERT ... SELECT, so

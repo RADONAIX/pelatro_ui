@@ -1,7 +1,6 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import type { NamedValue } from "@/lib/assurance/dashboard-config";
-import { TOOLTIP_STYLE, categorical } from "./viz";
-import { compact } from "./viz";
+import { TOOLTIP_STYLE, TOOLTIP_WRAPPER, categorical, compact } from "./viz";
 
 // ---------------------------------------------------------------------------
 // Donut with a legend table beside it. The legend is not optional: three of the
@@ -43,6 +42,7 @@ export function DonutChart({
             </Pie>
             <Tooltip
               contentStyle={TOOLTIP_STYLE}
+              wrapperStyle={TOOLTIP_WRAPPER}
               formatter={(value: number, name: string) => [
                 `${valueFormatter(Number(value))} · ${((Number(value) / total) * 100).toFixed(1)}%`,
                 name,

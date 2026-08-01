@@ -51,6 +51,13 @@ export type AssuranceDashboard = {
   subtitle: string;
   /** What one evaluated record is called here — "CDRs", "Invoices", … */
   recordUnit: string;
+  /**
+   * ISO currency of every monetary figure, set ONLY on dashboards served by the
+   * API from real reconciliation results. Its presence is what tells the
+   * dashboard the money is in whole units rather than the ₹ Cr the synthetic
+   * profiles below are scaled in — see `formatMoney`.
+   */
+  currency?: string;
   kpis: Record<KpiKey, KpiValue>;
   /** Row 1 left — dynamic title, always the same three series. */
   trendTitle: string;
@@ -486,6 +493,30 @@ const PROFILES: Record<string, Profile> = {
 
 export function formatCr(value: number): string {
   return `₹${value.toFixed(2)} Cr`;
+}
+
+/** The glyph for an ISO code, falling back to the code itself when unmapped. */
+export function currencySymbol(code: string | undefined): string {
+  if (!code) return "₹";
+  return (
+    { INR: "₹", USD: "$", EUR: "€", GBP: "£" }[code.toUpperCase()] ?? `${code} `
+  );
+}
+
+/**
+ * Money in whole units, for dashboards fed by real data.
+ *
+ * Kept separate from `formatCr` rather than replacing it: the seven synthetic
+ * dashboards are authored at crore scale and still read correctly there, while
+ * real reconciliation figures are single transactions — the canonical rating
+ * table totals a few hundred rupees, which `formatCr` would render as
+ * "₹0.00 Cr" and make a populated screen look broken.
+ */
+export function formatMoney(value: number, currency?: string): string {
+  return `${currencySymbol(currency)}${value.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 function formatCount(n: number): string {

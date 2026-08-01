@@ -6,7 +6,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { AppMetadata } from "@/lib/assurance/platform-metadata";
-import { getDashboard } from "@/lib/assurance/dashboard-config";
+import { formatCr, formatMoney } from "@/lib/assurance/dashboard-config";
+import { useAssuranceDashboard } from "@/lib/assurance/use-assurance-dashboard";
+import { Button } from "@/components/ui/button";
 import { KPICard } from "./KPICard";
 import { DashboardCard, LegendItem } from "./DashboardCard";
 import { DashboardFilters } from "./DashboardFilters";
@@ -14,16 +16,19 @@ import { AREA_SERIES, AreaTrendChart } from "./AreaTrendChart";
 import { RiskLineChart } from "./RiskLineChart";
 import { DonutChart } from "./DonutChart";
 import { HorizontalBarChart } from "./HorizontalBarChart";
-import { ExecutiveTable } from "./ExecutiveTable";
 import { VIZ, compact } from "./viz";
 
 // ---------------------------------------------------------------------------
 // The executive dashboard, shared by all eight assurance apps.
 //
 // Nothing below branches on the app. The layout, the five KPIs, the six cards
-// and the table are fixed; `getDashboard(app)` supplies the titles, labels and
-// datasets. Adding a ninth assurance means adding a profile to
-// dashboard-config.ts and nothing else.
+// and the table are fixed; the hook supplies the titles, labels and datasets —
+// from the API where an assurance has real reconciliation results, from the
+// profiles in dashboard-config.ts where it does not.
+//
+// It DOES branch on the source's scale, and only there: real figures are whole
+// currency units while the synthetic profiles are authored in ₹ Cr, so the
+// money formatters and the three subtitles that name a unit follow `live`.
 //
 // The reading order is deliberate — how much is at risk, how much was analysed,
 // how many issues, are reconciliations healthy, is it improving, which systems
@@ -31,8 +36,18 @@ import { VIZ, compact } from "./viz";
 // ---------------------------------------------------------------------------
 
 export function ExecutiveDashboard({ app }: { app: AppMetadata }) {
-  const d = getDashboard(app);
+  const {
+    dashboard: d,
+    loading,
+    error,
+    live,
+    reload,
+  } = useAssuranceDashboard(app);
   const k = d.kpis;
+
+  const money = (v: number) =>
+    live ? formatMoney(v, d.currency) : formatCr(v);
+  const moneyUnit = live ? (d.currency ?? "₹") : "₹ Cr";
 
   return (
     <div className="ra-viz space-y-5 pb-2">
@@ -49,51 +64,68 @@ export function ExecutiveDashboard({ app }: { app: AppMetadata }) {
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="size-1.5 animate-pulse rounded-full bg-success" />
-            Assurance engine live
+            {loading ? "Loading assurance results…" : "Assurance engine live"}
             <span className="mx-1 text-border">·</span>
             <span className="font-mono">{app.controlRange}</span>
           </div>
         </div>
 
-        <DashboardFilters />
+        <DashboardFilters onRefresh={reload} />
       </header>
+
+      {error && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
+          {/* Figures stay on screen behind this banner — they are the last good
+              response, not the failed one — so it says which, rather than
+              letting a stale number pass for a current one. */}
+          <span>
+            Could not load live assurance results: {error}. Showing reference
+            figures.
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={reload}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* 1–5 — the five KPIs, identical on every assurance */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {/* Only `value` is passed: the card no longer renders the delta or the
+            sparkline the KpiValue also carries. */}
         <KPICard
           icon={IndianRupee}
           title="Revenue at Risk"
           description="Estimated financial exposure detected during assurance validation."
-          sparkId={`spark-risk-${d.id}`}
-          {...k.revenueAtRisk}
+          value={k.revenueAtRisk.value}
         />
         <KPICard
           icon={Database}
           title={`Records Evaluated · ${d.recordUnit}`}
           description="Total business records analysed during the selected period."
-          sparkId={`spark-records-${d.id}`}
-          {...k.recordsEvaluated}
+          value={k.recordsEvaluated.value}
         />
         <KPICard
           icon={AlertTriangle}
           title="Assurance Exceptions"
           description="Business records violating assurance rules."
-          sparkId={`spark-exceptions-${d.id}`}
-          {...k.exceptions}
+          value={k.exceptions.value}
         />
         <KPICard
           icon={Percent}
           title="Exception Rate"
           description="Percentage of exception records against evaluated records."
-          sparkId={`spark-rate-${d.id}`}
-          {...k.exceptionRate}
+          value={k.exceptionRate.value}
         />
         <KPICard
           icon={ShieldCheck}
           title="Reconciliation Success"
           description="Percentage of records successfully reconciled between source systems."
-          sparkId={`spark-recon-${d.id}`}
-          {...k.reconciliation}
+          value={k.reconciliation.value}
         />
       </div>
 
@@ -102,7 +134,11 @@ export function ExecutiveDashboard({ app }: { app: AppMetadata }) {
         <DashboardCard
           className="xl:col-span-6"
           title={d.trendTitle}
-          subtitle="Last 12 months · thousands of records"
+          subtitle={
+            live
+              ? `Daily · ${d.recordUnit.toLowerCase()} reconciled`
+              : "Last 12 months · thousands of records"
+          }
           meta={
             <div className="flex items-center gap-3">
               {AREA_SERIES.map((s) => (
@@ -117,9 +153,9 @@ export function ExecutiveDashboard({ app }: { app: AppMetadata }) {
         <DashboardCard
           className="xl:col-span-3"
           title="Revenue at Risk Trend"
-          subtitle="Last 30 days · ₹ Cr"
+          subtitle={live ? `Daily · ${moneyUnit}` : "Last 30 days · ₹ Cr"}
         >
-          <RiskLineChart data={d.revenueAtRisk} />
+          <RiskLineChart data={d.revenueAtRisk} valueFormatter={money} />
         </DashboardCard>
 
         <DashboardCard
@@ -148,12 +184,12 @@ export function ExecutiveDashboard({ app }: { app: AppMetadata }) {
         <DashboardCard
           className="xl:col-span-4"
           title="Top Leakage Categories"
-          subtitle="Sorted by revenue impact · ₹ Cr"
+          subtitle={`Sorted by revenue impact · ${moneyUnit}`}
         >
           <HorizontalBarChart
             data={d.leakageCategories}
             color={VIZ.leakage}
-            valueFormatter={(v) => `₹${v.toFixed(2)} Cr`}
+            valueFormatter={money}
           />
         </DashboardCard>
 
@@ -169,15 +205,10 @@ export function ExecutiveDashboard({ app }: { app: AppMetadata }) {
           />
         </DashboardCard>
       </div>
-
-      {/* 8 — the money shot */}
-      <DashboardCard
-        title="Highest Revenue Impact Findings"
-        subtitle="Top five findings by financial exposure"
-        bodyClassName="px-0 pb-0"
-      >
-        <ExecutiveTable findings={d.findings} />
-      </DashboardCard>
+      {/* No "Highest Revenue Impact Findings" table — removed by request. The
+          dashboard now ends on the two chart rows; `findings` is still carried
+          in the dataset and by the API, so nothing needs recomputing to bring
+          it back. */}
     </div>
   );
 }

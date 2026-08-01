@@ -13,7 +13,15 @@ import { AXIS_TICK, TOOLTIP_STYLE, VIZ } from "./viz";
 // Revenue at Risk, last 30 days. One series, so no legend — the card title
 // names it. Common to every assurance, unchanged.
 
-export function RiskLineChart({ data }: { data: Point[] }) {
+export function RiskLineChart({
+  data,
+  // Defaults to crores, the scale the local profiles are authored in. An
+  // assurance served from real results passes a whole-unit formatter.
+  valueFormatter = (v: number) => `₹${v.toFixed(2)} Cr`,
+}: {
+  data: Point[];
+  valueFormatter?: (value: number) => string;
+}) {
   return (
     <div className="h-[268px] w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -54,7 +62,7 @@ export function RiskLineChart({ data }: { data: Point[] }) {
               marginBottom: 4,
             }}
             formatter={(value: number) => [
-              `₹${Number(value).toFixed(2)} Cr`,
+              valueFormatter(Number(value)),
               "Revenue at Risk",
             ]}
           />

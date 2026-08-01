@@ -33,6 +33,16 @@ export function categorical(index: number): string {
   return CATEGORICAL[index] ?? "var(--viz-muted)";
 }
 
+/**
+ * Lifts a tooltip above the chart's own overlays.
+ *
+ * Recharts positions the tooltip absolutely with no z-index, so any later
+ * positioned sibling — the donut's centre total, for one — paints on top of it
+ * and the two sets of numbers read as one. Goes on `wrapperStyle`, not
+ * `contentStyle`: the wrapper is the positioned element.
+ */
+export const TOOLTIP_WRAPPER: React.CSSProperties = { zIndex: 20 };
+
 export const TOOLTIP_STYLE: React.CSSProperties = {
   background: "var(--color-popover)",
   border: "1px solid var(--color-border)",
