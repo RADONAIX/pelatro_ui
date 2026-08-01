@@ -110,6 +110,16 @@ export function SearchableSelect({
 
   return (
     <Popover
+      // Modal so the LIST SCROLLS when this sits inside a Dialog.
+      //
+      // A Dialog locks scrolling with react-remove-scroll, which swallows wheel
+      // events everywhere except its own content subtree. PopoverContent is
+      // portalled to document.body, so it is outside that subtree and every
+      // wheel event over the options was being cancelled — the list looked
+      // frozen while arrow keys still moved through it. `modal` mounts the
+      // popover's own scroll lock with this content as the allowed region,
+      // which is what lets the wheel through.
+      modal
       open={open}
       onOpenChange={(next) => {
         setOpen(next);

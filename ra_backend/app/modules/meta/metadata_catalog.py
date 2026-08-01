@@ -78,8 +78,8 @@ _ASSURANCE_SOURCES: dict[str, tuple[_SourcePolicy, ...]] = {
     "rating": (
         _SourcePolicy(
             None,
-            ("canonical_rating",),
-            ("canonical_rating.rating_reconciliation", "canonical_rating.tariff_master", "canonical_rating.network_rating_output"),
+            ("canonical_rating","in_schema"),
+            ("canonical_rating.rating_reconciliation", "canonical_rating.tariff_master", "canonical_rating.network_rating_output","in_schema.in_voice"),
         ),
     ),
     "usage": (_SourcePolicy(None, ("msc_schema", "in_schema")),),
