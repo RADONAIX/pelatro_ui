@@ -2,18 +2,11 @@ import { createFileRoute, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Cpu, Database, ExternalLink, Monitor, Server, ServerCog } from "lucide-react";
+import { Cpu, Database, Monitor, Server } from "lucide-react";
 import { useT } from "@/lib/i18n";
 import { MonitoringDashboard, type PanelGroup } from "@/components/monitoring/Dashboard";
 
 export const Route = createFileRoute("/monitoring")({ component: MonitoringPage });
-
-// The ServerOps console. Opened in a new tab rather than embedded: it answers
-// with `X-Frame-Options: DENY`, which forbids framing by ANY origin — same
-// origin included — so an iframe here is a permanently blank panel no proxy or
-// URL change can fix. Its own author set that header; overriding it is their
-// call to make, not this app's.
-const SERVEROPS_URL = import.meta.env.VITE_SERVEROPS_URL ?? "/serverops/";
 
 type MonIcon = typeof Cpu;
 interface MonTab {
@@ -24,9 +17,6 @@ interface MonTab {
   // not provisioned yet, which renders the "not monitored" placeholder.
   groups?: readonly PanelGroup[];
   varServer?: string; // Prometheus `server` label, for the IP shown on the tab
-  // A URL to open in a new tab instead of rendering panels — for an app that
-  // refuses to be framed (see SERVEROPS_URL).
-  launch?: string;
 }
 interface MonCategory {
   title: string;
@@ -94,14 +84,6 @@ const CATEGORIES: Record<string, MonCategory> = {
       { id: "rs-2", label: "Report Server 2" },
     ],
   },
-  // Its own section, linking out to the ServerOps app — it sets
-  // X-Frame-Options: DENY, so it cannot be shown inside this page at all.
-  serverops: {
-    title: "Server Operations",
-    description: "Live service status & control across the fleet — powered by ServerOps",
-    icon: ServerCog,
-    tabs: [{ id: "fleet", label: "Fleet", launch: SERVEROPS_URL }],
-  },
 };
 
 const DEFAULT_VIEW = "applications";
@@ -129,9 +111,7 @@ function MonitoringPage() {
       />
 
       <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-        {/* Section header — icon + title + description. Shown for every
-            section: Server Operations no longer embeds an app carrying its own
-            header, it offers a link out (see the launch panel below). */}
+        {/* Section header — icon + title + description. */}
         <div className="flex flex-wrap items-center gap-3 px-5 py-4 border-b border-border">
           <div className="flex items-center gap-3 min-w-0">
             <span className="h-10 w-10 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
@@ -145,7 +125,7 @@ function MonitoringPage() {
         </div>
 
         {/* Tab strip — the section's dashboards. Hidden for single-tab sections
-            (e.g. Server Operations, which embeds a full app with its own nav). */}
+            */}
         {category.tabs.length > 1 && (
         <div className="px-5 pt-4">
           <div className="inline-flex flex-wrap gap-1 rounded-lg border border-border bg-muted/20 p-1">
@@ -176,36 +156,12 @@ function MonitoringPage() {
         </div>
         )}
 
-        {/* The panels for the selected host — or, where the host runs an app
-            that refuses to be framed, a link out to it.
+        {/* The panels for the selected host.
 
             A faint plane behind the panels: they are near-white cards, and a
             white card on a white page is a border and nothing else. */}
         <div className="bg-muted/25 p-5">
-          {tab.launch ? (
-            // Not an iframe: see SERVEROPS_URL. X-Frame-Options: DENY means the
-            // browser will not render it embedded under any circumstances, so a
-            // frame here would be a blank panel and a console error rather than
-            // a console.
-            <div className="flex h-[calc(100vh-360px)] min-h-[400px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 text-center">
-              <ServerCog className="h-12 w-12 text-muted-foreground/40" />
-              <p className="mt-3 text-sm font-medium text-foreground">{t(category.title)}</p>
-              <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
-                {t(
-                  "ServerOps sends X-Frame-Options: DENY, so it cannot be shown inside another page. It opens in its own tab.",
-                )}
-              </p>
-              <a
-                href={tab.launch}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90"
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-                {t("Open ServerOps")}
-              </a>
-            </div>
-          ) : tab.groups ? (
+          {tab.groups ? (
             // Remounted per host and per section, so switching tabs re-seeds the
             // window instead of carrying the previous host's history across.
             <MonitoringDashboard

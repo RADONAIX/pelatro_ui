@@ -11,9 +11,7 @@ import {
   Library,
   Package,
   PlayCircle,
-  Plug,
   Server,
-  ServerCog,
   ShieldCheck,
 } from "lucide-react";
 
@@ -156,8 +154,8 @@ export const RATING_NAV: RatingNavItem[] = [
   },
   /**
    * Infrastructure health for the whole fleet — the Grafana dashboards behind
-   * /monitoring, plus the ServerOps console. Platform-wide, so it says the same
-   * thing under every assurance.
+   * /monitoring. Platform-wide, so it says the same thing under every
+   * assurance.
    *
    * Its children are sections of ONE screen, selected by `?view=`, not separate
    * routes; see RatingNavChild.search. The keys must match CATEGORIES in
@@ -172,21 +170,14 @@ export const RATING_NAV: RatingNavItem[] = [
       { to: "/monitoring", label: "Applications", icon: Cpu, phase: 1, search: { view: "applications" } },
       { to: "/monitoring", label: "Databases", icon: Database, phase: 1, search: { view: "databases" } },
       { to: "/monitoring", label: "Report Servers", icon: Server, phase: 1, search: { view: "reportservers" } },
-      { to: "/monitoring", label: "Server Operations", icon: ServerCog, phase: 1, search: { view: "serverops" } },
+      // No "Server Operations" child. It launched the external ServerOps
+      // console, which sets X-Frame-Options: DENY and so could never render
+      // inside this app anyway.
     ],
   },
-  /**
-   * The rating SERVICE's own vitals — its databases, rule snapshot, connectors
-   * and pipeline jobs, read from ra_rating_backend. Assurance-specific despite
-   * the similar name: it describes one service, where /monitoring above
-   * describes the machines everything runs on.
-   */
-  {
-    to: "/rating/monitoring",
-    label: "Service Health",
-    icon: Activity,
-    phase: 1,
-  },
+  // No "Service Health" entry. It listed the rating service's own vitals from
+  // /rating/monitoring; the route is untouched and still resolves by URL,
+  // consistent with every other nav removal here.
 ];
 
 /** Routes that exist today — everything else renders as a disabled "soon" row. */
