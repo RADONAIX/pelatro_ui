@@ -17,14 +17,22 @@ from dataclasses import dataclass, field
 # defined once here and never spelled out again anywhere else.
 STATUS_MATCH = "MATCH"
 STATUS_MISMATCH = "MISMATCH"
-STATUS_RAW_MISSING = "RAW_MISSING"
-STATUS_PROCESSED_MISSING = "PROCESSED_MISSING"
+
+# Named after the SIDE that has no row, not after what that side happens to hold.
+#
+# These were RAW_MISSING / PROCESSED_MISSING, which assumed Table 1 is always
+# "processed" and Table 2 always "raw". That is true of an AIR processed-vs-raw
+# rule and false of most others — an MSC-vs-IN rule has no raw side at all — so
+# the names now say exactly which of the author's two tables is missing the
+# record. TABLE1_MISSING means the key was not found in Table 1.
+STATUS_TABLE1_MISSING = "TABLE1_MISSING"
+STATUS_TABLE2_MISSING = "TABLE2_MISSING"
 
 ALL_STATUSES = (
     STATUS_MATCH,
     STATUS_MISMATCH,
-    STATUS_RAW_MISSING,
-    STATUS_PROCESSED_MISSING,
+    STATUS_TABLE1_MISSING,
+    STATUS_TABLE2_MISSING,
 )
 
 # System columns appended to every generated table, in this order.
@@ -95,6 +103,20 @@ SEQUENCE_STATUSES = (STATUS_PRESENT, STATUS_GAP, STATUS_DUPLICATE)
 KIND_RECONCILIATION = "reconciliation"
 KIND_SEQUENCE = "sequence"
 KIND_DUPLICATE = "duplicate"
+KIND_THRESHOLD = "threshold"
+
+#: Kinds that report whole source ROWS (every column plus a status), as opposed
+#: to a folded series (sequence) or a paired comparison (reconciliation).
+ROW_KINDS = (KIND_DUPLICATE, KIND_THRESHOLD)
+
+STATUS_ORIGINAL = "ORIGINAL"
+STATUS_THRESHOLD_BREACH = "THRESHOLD_BREACH"
+
+#: A duplicate report holds only DUPLICATE rows — the first occurrence is the
+#: ORIGINAL and is deliberately not reported — so that is the only status the
+#: filter chips need to offer.
+DUPLICATE_STATUSES = (STATUS_DUPLICATE,)
+THRESHOLD_STATUSES = (STATUS_THRESHOLD_BREACH,)
 
 
 @dataclass(frozen=True)
@@ -134,6 +156,54 @@ class SequenceOptions:
 
 
 @dataclass(frozen=True)
+class RowRuleOptions:
+    """Parameters for a row-level rule (Duplicate, Threshold).
+
+    ``source_columns`` is the full column list of the source table, resolved at
+    compile time: the report must carry every column, and the output table's
+    DDL is built from their real types.
+    """
+
+    attribute: str
+    #: Duplicate only — an extra grouping, so a value repeated under two
+    #: different partitions is not one duplicate set.
+    partition_column: str | None = None
+    #: Threshold only — one of row_rules.OPERATORS.
+    operator: str | None = None
+    #: Threshold only — compared against the attribute, cast to its type.
+    value: str | None = None
+    #: Decides which row of a repeated value counts as the first occurrence.
+    order_column: str | None = None
+    source_columns: list["Column"] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {
+            "attribute": self.attribute,
+            "partitionColumn": self.partition_column,
+            "operator": self.operator,
+            "value": self.value,
+            "orderColumn": self.order_column,
+            "sourceColumns": [
+                {"name": c.name, "dataType": c.data_type} for c in self.source_columns
+            ],
+        }
+
+    @staticmethod
+    def from_dict(raw: dict) -> "RowRuleOptions":
+        return RowRuleOptions(
+            attribute=raw["attribute"],
+            partition_column=raw.get("partitionColumn"),
+            operator=raw.get("operator"),
+            value=raw.get("value"),
+            order_column=raw.get("orderColumn"),
+            source_columns=[
+                Column(name=c["name"], data_type=c["dataType"], numeric=False)
+                for c in raw.get("sourceColumns", [])
+            ],
+        )
+
+
+@dataclass(frozen=True)
 class ReconPlan:
     """Everything needed to build, populate and report on one reconciliation."""
 
@@ -151,6 +221,7 @@ class ReconPlan:
     #: metrics empty and carry their parameters on `sequence` instead.
     kind: str = KIND_RECONCILIATION
     sequence: SequenceOptions | None = None
+    row_rule: RowRuleOptions | None = None
 
     #: Percent tolerance for numeric metric pairs. 0 = exact.
     tolerance_pct: float = 0.0

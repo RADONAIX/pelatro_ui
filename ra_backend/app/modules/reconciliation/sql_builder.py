@@ -12,15 +12,16 @@ be a reserved word. Values are NEVER interpolated: the execution engine binds
 
 from __future__ import annotations
 
-from app.modules.reconciliation import sequence
+from app.modules.reconciliation import row_rules, sequence
 from app.modules.reconciliation.plan import (
     KIND_DUPLICATE,
     KIND_RECONCILIATION,
+    ROW_KINDS,
     PRESENCE_COLUMN,
     STATUS_MATCH,
     STATUS_MISMATCH,
-    STATUS_PROCESSED_MISSING,
-    STATUS_RAW_MISSING,
+    STATUS_TABLE1_MISSING,
+    STATUS_TABLE2_MISSING,
     ReconPlan,
 )
 
@@ -39,8 +40,14 @@ def qualified(schema: str, table: str) -> str:
 
 
 def build_ddl(plan: ReconPlan) -> str:
-    """Dispatch on the plan's kind. Single-table rules have a fixed output
-    shape; a reconciliation's is derived from the columns it compares."""
+    """Dispatch on the plan's kind.
+
+    Row-level rules (Duplicate, Threshold) mirror the source table's whole
+    column list; a sequence has a fixed six-column shape; a reconciliation's is
+    derived from the columns it compares.
+    """
+    if plan.kind in ROW_KINDS:
+        return row_rules.build_ddl(plan)
     if plan.kind != KIND_RECONCILIATION:
         return sequence.build_sequence_ddl(plan.output_schema, plan.output_table)
     return _build_recon_ddl(plan)
@@ -159,8 +166,8 @@ def _status_expression(plan: ReconPlan) -> str:
     row whose key is genuinely NULL would otherwise be misreported as missing.
     """
     return f"""CASE
-            WHEN r.{q(PRESENCE_COLUMN)} IS NULL THEN '{STATUS_RAW_MISSING}'
-            WHEN l.{q(PRESENCE_COLUMN)} IS NULL THEN '{STATUS_PROCESSED_MISSING}'
+            WHEN r.{q(PRESENCE_COLUMN)} IS NULL THEN '{STATUS_TABLE2_MISSING}'
+            WHEN l.{q(PRESENCE_COLUMN)} IS NULL THEN '{STATUS_TABLE1_MISSING}'
             WHEN {_metric_match_predicate(plan)}
                 THEN '{STATUS_MATCH}'
             ELSE '{STATUS_MISMATCH}'
@@ -220,7 +227,9 @@ def _side_subquery(plan: ReconPlan, side: str) -> str:
 
 
 def build_insert(plan: ReconPlan) -> str:
-    """Dispatch on kind — the single-table generator lives in sequence.py."""
+    """Dispatch on kind — each generator lives in its own module."""
+    if plan.kind in ROW_KINDS:
+        return row_rules.build_insert(plan)
     if plan.kind != KIND_RECONCILIATION:
         if plan.sequence is None:  # pragma: no cover - compiler guarantees this
             raise ValueError(f"{plan.kind} plan has no sequence options")

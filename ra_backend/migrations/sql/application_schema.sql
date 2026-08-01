@@ -222,3 +222,163 @@ ALTER TABLE application_schema.recon_definition
 -- have to join back to assurance_rule on every finished run.
 ALTER TABLE application_schema.recon_definition
     ADD COLUMN IF NOT EXISTS case_routing jsonb;
+
+
+-- ---------------------------------------------------------------------------
+-- Execution accounting and report storage.
+--
+-- rows_scanned vs rows_returned: a row-level rule reads a whole table and
+-- returns the few rows that breach, and both figures belong on the summary —
+-- "12 of 135,686" says something "12" alone does not.
+-- ---------------------------------------------------------------------------
+ALTER TABLE application_schema.recon_execution
+    ADD COLUMN IF NOT EXISTS rows_scanned bigint DEFAULT 0;
+ALTER TABLE application_schema.recon_execution
+    ADD COLUMN IF NOT EXISTS rows_returned bigint DEFAULT 0;
+ALTER TABLE application_schema.recon_execution
+    ADD COLUMN IF NOT EXISTS case_raised boolean NOT NULL DEFAULT false;
+ALTER TABLE application_schema.recon_execution
+    ADD COLUMN IF NOT EXISTS case_reference text;
+
+-- The requested `rule_execution` name, over the table that already holds this
+-- data. A view rather than a second table: two tables recording the same runs
+-- would drift, and every existing writer and index already points here.
+CREATE OR REPLACE VIEW application_schema.rule_execution AS
+    SELECT execution_id      AS id,
+           rule_id,
+           started_at        AS execution_start,
+           ended_at          AS execution_end,
+           duration_ms,
+           rows_scanned,
+           rows_returned,
+           status,
+           started_at        AS created_at,
+           trigger_source,
+           triggered_by,
+           error,
+           case_raised,
+           case_reference
+    FROM application_schema.recon_execution;
+
+
+-- One row per finished execution: the report's metadata and, for reports small
+-- enough to be worth it, the rows themselves.
+--
+-- report_json is deliberately NOT the storage for a large report. The rows live
+-- in the rule's own generated table (assurance.recon_<rule_id>), which is what
+-- lets a report of millions of rows exist at all and be paginated by index. A
+-- JSONB copy is kept only under recon_report_inline_max_rows so small reports
+-- can be served and downloaded without touching the source database.
+CREATE TABLE IF NOT EXISTS application_schema.rule_report (
+    id            bigserial PRIMARY KEY,
+    execution_id  uuid NOT NULL
+                  REFERENCES application_schema.recon_execution (execution_id) ON DELETE CASCADE,
+    rule_id       text NOT NULL,
+    report_json   jsonb,
+    report_count  bigint NOT NULL DEFAULT 0,
+    -- Where the full result set lives when it is too big to inline.
+    output_table  text,
+    columns       jsonb NOT NULL DEFAULT '[]'::jsonb,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (execution_id)
+);
+
+CREATE INDEX IF NOT EXISTS rule_report_rule_created_idx
+    ON application_schema.rule_report (rule_id, created_at DESC);
+
+
+-- Cases raised by a run. `case` is reserved in SQL, so the table is rule_case
+-- and the API calls it a case.
+CREATE TABLE IF NOT EXISTS application_schema.rule_case (
+    id                bigserial PRIMARY KEY,
+    rule_execution_id uuid NOT NULL
+                      REFERENCES application_schema.recon_execution (execution_id) ON DELETE CASCADE,
+    rule_id           text NOT NULL,
+    report_id         bigint REFERENCES application_schema.rule_report (id) ON DELETE SET NULL,
+    severity          text NOT NULL DEFAULT 'medium',
+    status            text NOT NULL DEFAULT 'Open',
+    reference         text,
+    breached_rows     bigint NOT NULL DEFAULT 0,
+    breach_threshold  integer NOT NULL DEFAULT 1,
+    created_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS rule_case_rule_created_idx
+    ON application_schema.rule_case (rule_id, created_at DESC);
+
+
+-- ---------------------------------------------------------------------------
+-- Status rename: RAW_MISSING / PROCESSED_MISSING -> TABLE2_MISSING / TABLE1_MISSING.
+--
+-- The old names assumed Table 1 is always "processed" and Table 2 always "raw",
+-- which is only true of an AIR processed-vs-raw rule. The new ones name the
+-- side that has no record, which is true of every rule.
+--
+-- NOTE the crossover: RAW_MISSING meant "not found in Table 2", so it becomes
+-- TABLE2_MISSING — not TABLE1_MISSING. Renaming these the other way round would
+-- silently invert every historical count.
+-- ---------------------------------------------------------------------------
+DO $rename$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'application_schema'
+          AND table_name = 'recon_execution'
+          AND column_name = 'rows_raw_missing'
+    ) THEN
+        DROP VIEW IF EXISTS application_schema.rule_execution;
+        ALTER TABLE application_schema.recon_execution
+            RENAME COLUMN rows_raw_missing TO rows_table2_missing;
+        ALTER TABLE application_schema.recon_execution
+            RENAME COLUMN rows_processed_missing TO rows_table1_missing;
+    END IF;
+END
+$rename$;
+
+CREATE OR REPLACE VIEW application_schema.rule_execution AS
+    SELECT execution_id      AS id,
+           rule_id,
+           started_at        AS execution_start,
+           ended_at          AS execution_end,
+           duration_ms,
+           rows_scanned,
+           rows_returned,
+           status,
+           started_at        AS created_at,
+           trigger_source,
+           triggered_by,
+           error,
+           case_raised,
+           case_reference
+    FROM application_schema.recon_execution;
+
+-- Rows already written carry the old status strings. They are derived data and
+-- a re-run would rewrite them, but a report should not read wrong until then.
+DO $restatus$
+DECLARE t record;
+BEGIN
+    FOR t IN
+        SELECT c.table_schema, c.table_name
+        FROM information_schema.columns c
+        WHERE c.table_schema = 'assurance'
+          AND c.table_name LIKE 'recon\_%'
+          AND c.column_name = 'status'
+    LOOP
+        EXECUTE format(
+            'UPDATE %I.%I SET status = CASE status
+                 WHEN ''RAW_MISSING'' THEN ''TABLE2_MISSING''
+                 WHEN ''PROCESSED_MISSING'' THEN ''TABLE1_MISSING''
+                 ELSE status END
+             WHERE status IN (''RAW_MISSING'', ''PROCESSED_MISSING'')',
+            t.table_schema, t.table_name);
+    END LOOP;
+END
+$restatus$;
+
+-- The inlined JSONB copies of small reports hold the old strings too.
+UPDATE application_schema.rule_report
+SET report_json = replace(
+        replace(report_json::text, '"RAW_MISSING"', '"TABLE2_MISSING"'),
+        '"PROCESSED_MISSING"', '"TABLE1_MISSING"'
+    )::jsonb
+WHERE report_json::text LIKE '%_MISSING%';

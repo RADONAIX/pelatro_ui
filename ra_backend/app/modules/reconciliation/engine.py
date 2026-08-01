@@ -29,7 +29,8 @@ from app.core.errors import ConflictError, UpstreamUnavailableError
 from app.core.logging import get_logger
 from app.integrations import pg_engines
 from app.modules.reconciliation import cases, repository, sql_builder
-from app.modules.reconciliation.plan import SYSTEM_COLUMNS, ReconPlan
+from app.modules.reconciliation import row_rules
+from app.modules.reconciliation.plan import ROW_KINDS, SYSTEM_COLUMNS, ReconPlan
 
 log = get_logger("recon.engine")
 
@@ -184,12 +185,27 @@ async def execute(
             **{k.lower(): v for k, v in counts.items()},
         )
 
+        # The report is stored unconditionally, BEFORE any case decision: the
+        # report is the deliverable and a case is only a consequence of it, so
+        # a rule that raises no case still leaves a full report behind.
+        report_id = await _store_report(plan, execution_id, counts)
+
         # After the results are published, never before: a case that points at
         # an execution the report cannot show yet would be a lie. Best-effort —
         # see cases.raise_case_if_breached.
         case = await cases.raise_case_if_breached(
             plan, counts, execution_id=execution_id
         )
+        if case and case.get("raised"):
+            await repository.save_case(
+                execution_id=execution_id,
+                rule_id=plan.rule_id,
+                report_id=report_id,
+                severity=(plan.case_routing or {}).get("priority") or plan.severity,
+                reference=case.get("reference"),
+                breached_rows=int(case.get("breachedRows") or 0),
+                breach_threshold=int(case.get("breachThreshold") or 1),
+            )
 
         return {
             "executionId": execution_id,
@@ -256,6 +272,9 @@ async def _load(plan: ReconPlan, execution_id: str) -> dict[str, int]:
                 "execution_id": execution_id,
                 "rule_id": plan.rule_id,
                 "execution_time": datetime.now(timezone.utc),
+                # Threshold rules compare against a bound value; other kinds
+                # supply nothing extra.
+                **row_rules.bind_params(plan),
             },
         )
 
@@ -264,6 +283,16 @@ async def _load(plan: ReconPlan, execution_id: str) -> dict[str, int]:
         )
         counts: dict[str, int] = {row["status"]: int(row["n"]) for row in summary.mappings()}
         counts["total"] = sum(counts.values())
+
+        # Rows the rule LOOKED at, as opposed to the rows it returned. Only a
+        # row-level rule can answer it cheaply (one count on the source table);
+        # for the others the source is two tables or a folded series, and the
+        # scanned figure is the returned figure.
+        if plan.kind in ROW_KINDS:
+            scanned = await conn.execute(text(row_rules.build_scanned_count(plan)))
+            counts["scanned"] = int(scanned.scalar() or 0)
+        else:
+            counts["scanned"] = counts["total"]
 
         keep = await repository.retained_execution_ids(
             plan.rule_id, settings.recon_keep_executions
@@ -285,6 +314,34 @@ async def _load(plan: ReconPlan, execution_id: str) -> dict[str, int]:
         log.warning("recon_analyze_failed", rule_id=plan.rule_id, error=str(exc))
 
     return counts
+
+
+async def _store_report(
+    plan: ReconPlan, execution_id: str, counts: dict[str, int]
+) -> int:
+    """Persist the report for this execution.
+
+    Small reports are also inlined as JSONB so they can be served and downloaded
+    without touching the source database. A large one keeps only its metadata —
+    a JSONB copy of a million-row report would defeat the point of having
+    generated it in SQL — and is read from the rule's generated table instead.
+    """
+    total = int(counts.get("total", 0))
+    rows: list[dict[str, Any]] | None = None
+    if 0 < total <= settings.recon_report_inline_max_rows:
+        page = await fetch_results(
+            plan, execution_id=execution_id, limit=settings.recon_report_inline_max_rows
+        )
+        rows = page["rows"]
+
+    return await repository.save_report(
+        execution_id=execution_id,
+        rule_id=plan.rule_id,
+        columns=[*plan.business_columns, "status"],
+        report_count=total,
+        output_table=plan.output_qualified,
+        rows=rows,
+    )
 
 
 async def fetch_results(

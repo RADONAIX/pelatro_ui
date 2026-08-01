@@ -15,9 +15,13 @@ from typing import Any
 from app.core.config import settings
 from app.core.errors import NotFoundError
 from app.integrations import ra_postgres
+from app.modules.reconciliation import row_rules
 from app.modules.reconciliation.sequence import SEQUENCE_COLUMNS
 from app.modules.reconciliation.plan import (
     KIND_RECONCILIATION,
+    KIND_SEQUENCE,
+    ROW_KINDS,
+    RowRuleOptions,
     Column,
     ColumnPair,
     ReconPlan,
@@ -227,7 +231,13 @@ async def upsert_definition(plan: ReconPlan) -> dict[str, Any]:
             "breach_threshold": max(1, plan.breach_threshold),
             "case_routing": json.dumps(plan.case_routing) if plan.case_routing else None,
             "kind": plan.kind,
-            "options": json.dumps(plan.sequence.as_dict() if plan.sequence else {}),
+            "options": json.dumps(
+                plan.sequence.as_dict()
+                if plan.sequence
+                else plan.row_rule.as_dict()
+                if plan.row_rule
+                else {}
+            ),
         },
     )
     return rows[0]
@@ -345,7 +355,8 @@ async def finish_execution(
         UPDATE {_executions()}
         SET status = 'Succeeded', ended_at = now(), duration_ms = :duration_ms,
             rows_total = :total, rows_match = :match, rows_mismatch = :mismatch,
-            rows_raw_missing = :raw_missing, rows_processed_missing = :processed_missing
+            rows_table1_missing = :table1_missing, rows_table2_missing = :table2_missing,
+            rows_scanned = :scanned, rows_returned = :total
         WHERE execution_id = CAST(:execution_id AS uuid)
         """,
         {
@@ -354,9 +365,122 @@ async def finish_execution(
             "total": counts.get("total", 0),
             "match": counts.get("MATCH", 0),
             "mismatch": counts.get("MISMATCH", 0),
-            "raw_missing": counts.get("RAW_MISSING", 0),
-            "processed_missing": counts.get("PROCESSED_MISSING", 0),
+            "table1_missing": counts.get("TABLE1_MISSING", 0),
+            "table2_missing": counts.get("TABLE2_MISSING", 0),
+            "scanned": counts.get("scanned", counts.get("total", 0)),
         },
+    )
+
+
+async def save_report(
+    *,
+    execution_id: str,
+    rule_id: str,
+    columns: list[str],
+    report_count: int,
+    output_table: str,
+    rows: list[dict[str, Any]] | None,
+) -> int:
+    """Record the report for a finished execution.
+
+    Always written, whatever the outcome of the case decision — the report is
+    the deliverable; the case is a consequence of it.
+    """
+    result = await _execute(
+        f"""
+        INSERT INTO {settings.app_rules_schema}.rule_report
+            (execution_id, rule_id, report_json, report_count, output_table, columns)
+        VALUES (CAST(:execution_id AS uuid), :rule_id, CAST(:report_json AS jsonb),
+                :report_count, :output_table, CAST(:columns AS jsonb))
+        ON CONFLICT (execution_id) DO UPDATE SET
+            report_json = EXCLUDED.report_json,
+            report_count = EXCLUDED.report_count,
+            output_table = EXCLUDED.output_table,
+            columns = EXCLUDED.columns
+        RETURNING id
+        """,
+        {
+            "execution_id": execution_id,
+            "rule_id": rule_id,
+            "report_json": json.dumps(rows, default=str) if rows is not None else None,
+            "report_count": report_count,
+            "output_table": output_table,
+            "columns": json.dumps(columns),
+        },
+    )
+    return int(result[0]["id"])
+
+
+async def save_case(
+    *,
+    execution_id: str,
+    rule_id: str,
+    report_id: int | None,
+    severity: str,
+    reference: str | None,
+    breached_rows: int,
+    breach_threshold: int,
+) -> None:
+    await _execute(
+        f"""
+        INSERT INTO {settings.app_rules_schema}.rule_case
+            (rule_execution_id, rule_id, report_id, severity, status, reference,
+             breached_rows, breach_threshold)
+        VALUES (CAST(:execution_id AS uuid), :rule_id, :report_id, :severity, 'Open',
+                :reference, :breached_rows, :breach_threshold)
+        """,
+        {
+            "execution_id": execution_id,
+            "rule_id": rule_id,
+            "report_id": report_id,
+            "severity": severity,
+            "reference": reference,
+            "breached_rows": breached_rows,
+            "breach_threshold": breach_threshold,
+        },
+    )
+    await _execute(
+        f"""
+        UPDATE {_executions()}
+        SET case_raised = true, case_reference = :reference
+        WHERE execution_id = CAST(:execution_id AS uuid)
+        """,
+        {"execution_id": execution_id, "reference": reference},
+    )
+
+
+async def get_report(execution_id: str) -> dict[str, Any]:
+    rows = await _query(
+        f"""
+        SELECT r.id, r.execution_id, r.rule_id, r.report_json, r.report_count,
+               r.output_table, r.columns, r.created_at,
+               e.status, e.started_at, e.ended_at, e.duration_ms,
+               e.rows_scanned, e.rows_returned, e.case_raised, e.case_reference,
+               e.trigger_source, e.triggered_by
+        FROM {settings.app_rules_schema}.rule_report r
+        JOIN {_executions()} e ON e.execution_id = r.execution_id
+        WHERE r.execution_id = CAST(:execution_id AS uuid)
+        """,
+        {"execution_id": execution_id},
+    )
+    if not rows:
+        raise NotFoundError(f"No report for execution {execution_id}.")
+    return rows[0]
+
+
+async def list_reports_for_rule(rule_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    return await _query(
+        f"""
+        SELECT r.id, r.execution_id, r.rule_id, r.report_count, r.output_table,
+               r.created_at, e.status, e.duration_ms, e.rows_scanned,
+               e.rows_returned, e.case_raised, e.case_reference
+        FROM {settings.app_rules_schema}.rule_report r
+        JOIN {_executions()} e ON e.execution_id = r.execution_id
+        WHERE r.rule_id = :rule_id
+        ORDER BY r.created_at DESC
+        LIMIT :limit
+        """,
+        {"rule_id": rule_id, "limit": limit},
     )
 
 
@@ -376,7 +500,7 @@ async def list_executions(rule_id: str, *, limit: int = 20) -> list[dict[str, An
         f"""
         SELECT execution_id, rule_id, trigger_source, status, started_at, ended_at,
                duration_ms, rows_total, rows_match, rows_mismatch,
-               rows_raw_missing, rows_processed_missing, error, triggered_by
+               rows_table1_missing, rows_table2_missing, error, triggered_by
         FROM {_executions()}
         WHERE rule_id = :rule_id
         ORDER BY started_at DESC
@@ -451,10 +575,17 @@ def definition_to_plan(row: dict[str, Any]) -> ReconPlan:
     options = row.get("options") or {}
     sequence_options = (
         SequenceOptions.from_dict(options)
-        if kind != KIND_RECONCILIATION and options.get("column")
+        if kind == KIND_SEQUENCE and options.get("column")
         else None
     )
-    if sequence_options is not None:
+    row_options = (
+        RowRuleOptions.from_dict(options)
+        if kind in ROW_KINDS and options.get("attribute")
+        else None
+    )
+    if row_options is not None:
+        business = row_rules.output_columns(row_options)
+    elif sequence_options is not None:
         business = list(SEQUENCE_COLUMNS)
     else:
         business = [c for p in keys for c in (p.output_left, p.output_right)]
@@ -470,6 +601,7 @@ def definition_to_plan(row: dict[str, Any]) -> ReconPlan:
         metrics=metrics,
         kind=kind,
         sequence=sequence_options,
+        row_rule=row_options,
         tolerance_pct=float(row["tolerance_pct"] or 0),
         output_schema=row["output_schema"],
         output_table=row["output_table"],

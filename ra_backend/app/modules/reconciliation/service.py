@@ -7,18 +7,24 @@ service calls ``list_reports`` and ``read_report``.
 
 from __future__ import annotations
 
+import csv
+import io
 from typing import Any
 
 from app.core.config import settings
 from app.core.errors import NotFoundError, ValidationFailedError
 from app.core.logging import get_logger
-from app.modules.reconciliation import compiler, engine, repository, sql_builder
+from app.modules.reconciliation import compiler, engine, repository, row_rules, sql_builder
 from app.modules.reconciliation.plan import (
     ALL_STATUSES,
+    DUPLICATE_STATUSES,
     KIND_DUPLICATE,
     KIND_RECONCILIATION,
     KIND_SEQUENCE,
+    KIND_THRESHOLD,
+    ROW_KINDS,
     SEQUENCE_STATUSES,
+    THRESHOLD_STATUSES,
 )
 
 log = get_logger("recon.service")
@@ -30,6 +36,7 @@ COMPILED_CATEGORIES: dict[str, str] = {
     "reconciliation": KIND_RECONCILIATION,
     "sequence": KIND_SEQUENCE,
     "duplicate": KIND_DUPLICATE,
+    "threshold": KIND_THRESHOLD,
 }
 
 
@@ -81,6 +88,10 @@ async def compile_and_run(
             params=rule.get("params") or {},
             **common,
         )
+    elif kind in ROW_KINDS:
+        plan = await compiler.compile_row_rule(
+            kind=kind, params=rule.get("params") or {}, **common
+        )
     else:
         plan = await compiler.compile_sequence_rule(
             kind=kind, params=rule.get("params") or {}, **common
@@ -92,7 +103,12 @@ async def compile_and_run(
     await repository.upsert_definition(plan)
 
     if not execute_now:
-        return {"ruleId": plan.rule_id, "reportKey": plan.report_key, "executed": False}
+        return {
+            "ruleId": plan.rule_id,
+            "reportKey": plan.report_key,
+            "executed": False,
+            "reason": "Rule is a draft — it runs when you set it Active.",
+        }
 
     result = await engine.execute(plan, trigger=trigger, triggered_by=triggered_by)
     return {
@@ -227,7 +243,13 @@ async def read_report(
     # The statuses THIS kind can produce. Validating against the reconciliation
     # four regardless silently dropped the filter for a sequence rule, so
     # ?status=GAP returned every row instead of the gaps.
-    allowed = ALL_STATUSES if kind == KIND_RECONCILIATION else SEQUENCE_STATUSES
+    allowed = {
+        KIND_RECONCILIATION: ALL_STATUSES,
+        KIND_DUPLICATE: DUPLICATE_STATUSES,
+        # A threshold rule labels its rows with its own name, so the filter has
+        # to offer that label rather than the generic constant.
+        KIND_THRESHOLD: (row_rules.threshold_status(plan).replace("''", "'"),),
+    }.get(kind, SEQUENCE_STATUSES)
 
     latest = await repository.latest_succeeded_execution(definition["rule_id"])
     if latest is None:
@@ -296,3 +318,101 @@ async def report_summary(report_key: str) -> dict[str, Any]:
 
 def output_schema_default() -> str:
     return settings.recon_output_schema
+
+
+# --- execution-centric reports ----------------------------------------------
+
+
+async def read_execution_report(
+    execution_id: str, *, limit: int = 100, offset: int = 0
+) -> dict[str, Any]:
+    """One execution's summary plus a page of its rows.
+
+    Rows come from the inlined JSONB when the report was small enough to store
+    that way, and straight from the rule's generated table otherwise — the
+    caller cannot tell the difference, which is the point.
+    """
+    report = await repository.get_report(execution_id)
+    definition = await repository.get_definition(report["rule_id"])
+    plan = repository.definition_to_plan(definition)
+
+    summary = {
+        "executionId": str(report["execution_id"]),
+        "reportId": report["id"],
+        "ruleId": report["rule_id"],
+        "ruleName": definition["report_title"],
+        "kind": definition.get("kind") or KIND_RECONCILIATION,
+        "status": report["status"],
+        "executionStart": report["started_at"],
+        "executionEnd": report["ended_at"],
+        "durationMs": report["duration_ms"],
+        "rowsScanned": report["rows_scanned"],
+        "rowsReturned": report["rows_returned"],
+        "reportCount": report["report_count"],
+        "caseCreated": bool(report["case_raised"]),
+        "caseReference": report["case_reference"],
+        "triggeredBy": report["triggered_by"],
+        "trigger": report["trigger_source"],
+        "outputTable": report["output_table"],
+        "columns": report["columns"],
+    }
+    if limit == 0:
+        return {**summary, "rows": [], "total": report["report_count"]}
+
+    inline = report["report_json"]
+    if inline is not None:
+        return {
+            **summary,
+            "rows": inline[offset : offset + limit],
+            "total": len(inline),
+        }
+
+    page = await engine.fetch_results(
+        plan, execution_id=execution_id, limit=limit, offset=offset
+    )
+    return {**summary, "rows": page["rows"], "total": page["total"]}
+
+
+async def stream_report_csv(execution_id: str, *, with_bom: bool = False):
+    """The whole report as CSV, yielded in chunks.
+
+    Never materialises the report: rows arrive from the database a page at a
+    time and each page is turned into CSV text and released. Memory is flat
+    whatever the row count.
+    """
+    report = await repository.get_report(execution_id)
+    definition = await repository.get_definition(report["rule_id"])
+    plan = repository.definition_to_plan(definition)
+    columns: list[str] = list(report["columns"] or [])
+
+    def to_row(values: list[Any]) -> str:
+        buffer = io.StringIO()
+        csv.writer(buffer, lineterminator="\n").writerow(values)
+        return buffer.getvalue()
+
+    if with_bom:
+        # Excel assumes the system codepage without it, and mangles anything
+        # non-ASCII in a filename or a node id.
+        yield "﻿"
+    yield to_row(columns)
+
+    inline = report["report_json"]
+    if inline is not None:
+        for row in inline:
+            yield to_row([row.get(c) for c in columns])
+        return
+
+    offset = 0
+    page_size = settings.recon_download_page_rows
+    while True:
+        page = await engine.fetch_results(
+            plan, execution_id=execution_id, limit=page_size, offset=offset
+        )
+        rows = page["rows"]
+        if not rows:
+            break
+        for row in rows:
+            yield to_row([row.get(c) for c in columns])
+        if len(rows) < page_size:
+            break
+        offset += page_size

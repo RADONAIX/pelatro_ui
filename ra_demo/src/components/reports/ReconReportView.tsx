@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Play, RefreshCw } from "lucide-react";
+import { AlertTriangle, Download, Play, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   RECON_STATUSES,
+  fetchExecutionReport,
   fetchReconExecutions,
   fetchReconPage,
+  reportDownloadUrl,
   runReconNow,
+  type ExecutionSummary,
   type ReconExecution,
   type ReconPage,
   type ReconStatus,
@@ -31,8 +34,8 @@ const STATUS_TONE: Record<ReconStatus, string> = {
   // Reconciliation outcomes.
   MATCH: "border-success/40 bg-success/10 text-success",
   MISMATCH: "border-destructive/40 bg-destructive/10 text-destructive",
-  RAW_MISSING: "border-warning/40 bg-warning/15 text-warning-foreground",
-  PROCESSED_MISSING: "border-info/40 bg-info/10 text-info",
+  TABLE1_MISSING: "border-info/40 bg-info/10 text-info",
+  TABLE2_MISSING: "border-warning/40 bg-warning/15 text-warning-foreground",
   // Sequence outcomes. A gap is the finding to act on, so it takes the
   // destructive tone that MISMATCH has on the other kind.
   PRESENT: "border-success/40 bg-success/10 text-success",
@@ -75,6 +78,7 @@ function cell(value: unknown) {
 export function ReconReportView({ reportKey }: { reportKey: string }) {
   const [page, setPage] = useState<ReconPage | null>(null);
   const [executions, setExecutions] = useState<ReconExecution[]>([]);
+  const [summary, setSummary] = useState<ExecutionSummary | null>(null);
   const [status, setStatus] = useState<ReconStatus | null>(null);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -92,6 +96,17 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
       setPage(next);
       setError(null);
       if (next.ruleId) setExecutions(await fetchReconExecutions(next.ruleId));
+      // The stored report carries figures the row page cannot: how many rows
+      // were SCANNED to produce it, and whether a case came out of it.
+      if (next.executionId) {
+        try {
+          setSummary(await fetchExecutionReport(next.executionId, { limit: 0, offset: 0 }));
+        } catch {
+          // A missing report row for an older execution is not worth failing
+          // the view over — the table below is still correct.
+          setSummary(null);
+        }
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -165,11 +180,16 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
                 Mismatch <span className="tabular">{latest.rows_mismatch.toLocaleString()}</span>
               </span>
               <span>
-                Raw missing <span className="tabular text-foreground">{latest.rows_raw_missing.toLocaleString()}</span>
+                Missing in Table 1{" "}
+                <span className="tabular text-foreground">
+                  {latest.rows_table1_missing.toLocaleString()}
+                </span>
               </span>
               <span>
-                Processed missing{" "}
-                <span className="tabular text-foreground">{latest.rows_processed_missing.toLocaleString()}</span>
+                Missing in Table 2{" "}
+                <span className="tabular text-foreground">
+                  {latest.rows_table2_missing.toLocaleString()}
+                </span>
               </span>
               {latest.duration_ms != null && <span>{latest.duration_ms} ms</span>}
             </>
@@ -196,6 +216,55 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
           {error}
+        </div>
+      )}
+
+      {/* Execution summary — what this run did, and what came of it. */}
+      {summary && (
+        <div className="grid gap-3 rounded-lg border border-border bg-card p-4 sm:grid-cols-3 lg:grid-cols-6">
+          <Figure label="Rows scanned" value={summary.rowsScanned.toLocaleString()} />
+          <Figure label="Rows returned" value={summary.rowsReturned.toLocaleString()} />
+          <Figure
+            label="Execution time"
+            value={summary.executionStart ? new Date(summary.executionStart).toLocaleString() : "—"}
+          />
+          <Figure
+            label="Duration"
+            value={summary.durationMs != null ? `${summary.durationMs} ms` : "—"}
+          />
+          <Figure
+            label="Case created"
+            value={summary.caseCreated ? summary.caseReference || "Yes" : "No"}
+            tone={summary.caseCreated ? "warn" : undefined}
+          />
+          <Figure
+            label="Status"
+            value={summary.status}
+            tone={summary.status === "Succeeded" ? "good" : "warn"}
+          />
+
+          <div className="flex items-end gap-2 sm:col-span-3 lg:col-span-6">
+            {/* Plain links, not fetches: the file is streamed and may be very
+                large, so the browser downloads it rather than the page pulling
+                it into memory first. */}
+            <Button asChild variant="outline" size="sm" className="h-8 gap-1.5">
+              <a href={reportDownloadUrl(summary.executionId, "csv")}>
+                <Download className="size-3.5" />
+                Download CSV
+              </a>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8 gap-1.5">
+              <a href={reportDownloadUrl(summary.executionId, "excel")}>
+                <Download className="size-3.5" />
+                Download Excel
+              </a>
+            </Button>
+            <span className="self-center text-xs text-muted-foreground">
+              {summary.reportCount.toLocaleString()} row
+              {summary.reportCount === 1 ? "" : "s"} stored ·{" "}
+              <span className="font-mono">{summary.outputTable}</span>
+            </span>
+          </div>
         </div>
       )}
 
@@ -303,6 +372,34 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+/** One figure on the execution summary strip. */
+function Figure({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "good" | "warn";
+}) {
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          "tabular truncate text-sm font-medium",
+          tone === "good" && "text-success",
+          tone === "warn" && "text-warning-foreground",
+        )}
+        title={value}
+      >
+        {value}
+      </p>
     </div>
   );
 }

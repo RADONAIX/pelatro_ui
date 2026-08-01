@@ -92,6 +92,21 @@ export type CaseRouting = {
   breachThreshold: number;
 };
 
+/**
+ * Comparison operators a Threshold rule may use, and how each reads on screen.
+ *
+ * The same six the backend whitelists — it maps them to SQL (`!=` becomes
+ * `<>`), so this list and that whitelist have to agree.
+ */
+export const THRESHOLD_OPERATORS: { value: string; label: string }[] = [
+  { value: "=", label: "=  equals" },
+  { value: "!=", label: "≠  not equal" },
+  { value: ">", label: ">  greater than" },
+  { value: ">=", label: "≥  at least" },
+  { value: "<", label: "<  less than" },
+  { value: "<=", label: "≤  at most" },
+];
+
 export const DEFAULT_BREACH_THRESHOLD = 1;
 
 /** Midnight — the spec's default, and what the database column defaults to. */

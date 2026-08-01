@@ -17,12 +17,15 @@ import httpx
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.modules.reconciliation.plan import (
+    KIND_DUPLICATE,
     KIND_RECONCILIATION,
+    KIND_THRESHOLD,
+    STATUS_THRESHOLD_BREACH,
     STATUS_GAP,
     STATUS_DUPLICATE,
     STATUS_MISMATCH,
-    STATUS_PROCESSED_MISSING,
-    STATUS_RAW_MISSING,
+    STATUS_TABLE1_MISSING,
+    STATUS_TABLE2_MISSING,
     ReconPlan,
 )
 
@@ -36,15 +39,27 @@ log = get_logger("recon.cases")
 _BREACH_STATUSES: dict[str, tuple[str, ...]] = {
     KIND_RECONCILIATION: (
         STATUS_MISMATCH,
-        STATUS_RAW_MISSING,
-        STATUS_PROCESSED_MISSING,
+        STATUS_TABLE1_MISSING,
+        STATUS_TABLE2_MISSING,
     ),
+    # A row-level rule only ever writes breaching rows — the report IS the
+    # breach set — so every row it returned counts.
+    KIND_DUPLICATE: (STATUS_DUPLICATE,),
+    KIND_THRESHOLD: (STATUS_THRESHOLD_BREACH,),
 }
 _SEQUENCE_BREACHES = (STATUS_GAP, STATUS_DUPLICATE)
 
 
 def breached_rows(plan: ReconPlan, counts: dict[str, int]) -> int:
-    """How many rows of this run count as a breach."""
+    """How many rows of this run count as a breach.
+
+    A row-level rule only ever writes breaching rows — the report IS the breach
+    set — so the total counts, whatever those rows happen to be labelled. That
+    matters because a threshold rule labels its rows with the rule's own name,
+    which no fixed list could enumerate.
+    """
+    if plan.kind in (KIND_DUPLICATE, KIND_THRESHOLD):
+        return int(counts.get("total", 0))
     statuses = _BREACH_STATUSES.get(plan.kind, _SEQUENCE_BREACHES)
     return sum(int(counts.get(status, 0)) for status in statuses)
 

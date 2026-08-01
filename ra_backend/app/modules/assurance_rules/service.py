@@ -218,9 +218,16 @@ async def _compile_reconciliation(rule: dict[str, Any], *, trigger: str) -> dict
     """
     if not recon_service.is_reconciliation(rule.get("category")):
         return None
+    # Activation is what triggers a run. A Draft rule is compiled and stored —
+    # so its SQL and its report are ready — but it neither executes nor takes a
+    # schedule until someone sets it Active.
+    active = (rule.get("state") or "").strip().lower() == "active"
     try:
         return await recon_service.compile_and_run(
-            rule=rule, trigger=trigger, triggered_by=rule.get("createdBy") or ""
+            rule=rule,
+            trigger=trigger,
+            triggered_by=rule.get("createdBy") or "",
+            execute_now=active,
         )
     except AppError as exc:
         log.warning(
@@ -242,7 +249,13 @@ async def set_state(*, rule_id: str, state: str) -> dict[str, Any]:
     )
     if not rows:
         raise NotFoundError(f"Rule {rule_id} does not exist.")
-    return _row_to_api(rows[0])
+    stored = _row_to_api(rows[0])
+    # Moving a rule to Active is what starts it: it runs once immediately, and
+    # only then takes its schedule. Pausing back to Draft leaves the last report
+    # in place and simply stops the scheduler picking it up.
+    if state == "Active":
+        stored["reconciliation"] = await _compile_reconciliation(stored, trigger="activate")
+    return stored
 
 
 async def delete_rule(rule_id: str) -> None:

@@ -7,6 +7,7 @@ import {
   COMPARISON_CATEGORIES,
   DEFAULT_EXECUTION_TIME,
   SINGLE_TABLE_CATEGORIES,
+  THRESHOLD_OPERATORS,
   emptyCaseRouting,
   emptyComparison,
   type AttrPair,
@@ -215,7 +216,11 @@ export function RuleBuilder({
   // A threshold needs all three: which table, which attribute of it, and the
   // limit that attribute is judged against. None of them has a sensible default.
   const singleTableValid =
-    !isSingleTable || (!!params.table && !!params.attribute && !!params.value?.trim());
+    !isSingleTable ||
+    (!!params.table &&
+      !!params.attribute &&
+      !!params.operator &&
+      !!params.value?.trim());
 
   // The server requires an entity, so guard the brief window before the catalog
   // answers rather than letting the save come back 422.
@@ -895,7 +900,9 @@ function SingleTableEditor({
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      {/* Attribute, operator and value read as one sentence — "file_size_mb =
+          0" — so they sit on one row in that order. */}
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr]">
         <div className="space-y-1.5">
           <Label>Attribute</Label>
           <ColumnSelect
@@ -904,6 +911,25 @@ function SingleTableEditor({
             value={value.attribute ?? ""}
             onChange={(v) => onChange({ ...value, attribute: v })}
           />
+        </div>
+
+        <div className="space-y-1.5 sm:w-28">
+          <Label>Operator</Label>
+          <Select
+            value={value.operator || "="}
+            onValueChange={(v) => onChange({ ...value, operator: v })}
+          >
+            <SelectTrigger aria-invalid={!value.operator}>
+              <SelectValue placeholder="=" />
+            </SelectTrigger>
+            <SelectContent>
+              {THRESHOLD_OPERATORS.map((op) => (
+                <SelectItem key={op.value} value={op.value}>
+                  {op.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-1.5">
@@ -920,8 +946,12 @@ function SingleTableEditor({
       {metadataError && <p className="text-xs text-destructive">{metadataError}</p>}
 
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Flags rows where the selected attribute breaches the value — e.g.{" "}
-        {hint("attribute") || "the attribute"} on {hint("table") || "the table"}.
+        Returns only the rows where{" "}
+        <span className="font-mono">
+          {value.attribute || hint("attribute") || "attribute"}{" "}
+          {value.operator || "…"} {value.value || hint("value") || "value"}
+        </span>
+        , with every column of the source table and a status of THRESHOLD_BREACH.
       </p>
     </div>
   );

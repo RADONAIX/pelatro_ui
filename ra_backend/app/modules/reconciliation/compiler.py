@@ -22,11 +22,14 @@ from app.core.errors import ValidationFailedError
 from app.core.logging import get_logger
 from app.integrations import ra_postgres
 from app.modules.meta import metadata_catalog
-from app.modules.reconciliation import sequence
+from app.modules.reconciliation import row_rules, sequence
 from app.modules.reconciliation.plan import (
+    KIND_DUPLICATE,
+    KIND_THRESHOLD,
     Column,
     ColumnPair,
     ReconPlan,
+    RowRuleOptions,
     SequenceOptions,
     TableRef,
 )
@@ -354,6 +357,126 @@ async def compile_sequence_rule(
         column=column,
         group_index=group_index,
         partition=partition,
+        output=plan.output_qualified,
+    )
+    return plan
+
+
+#: Column names preferred as the "first occurrence" tiebreak for a Duplicate
+#: rule, in order. A real ordering column beats ctid, which is only stable
+#: within one statement.
+_ORDER_CANDIDATES = ("id", "file_id", "record_id", "seq_no", "created_at", "inserted_at")
+
+
+async def compile_row_rule(
+    *,
+    rule_id: str,
+    assurance_id: str,
+    rule_name: str,
+    kind: str,
+    params: dict | None,
+    frequency: str = "Daily",
+    severity: str = "medium",
+    execution_time: str = "00:00",
+    case_routing: dict | None = None,
+) -> ReconPlan:
+    """A Duplicate or Threshold rule -> a validated plan.
+
+    Both run over one table and report whole rows, so the compiler resolves the
+    table's FULL column list: the report carries every column, and the output
+    table is built from their real types.
+    """
+    params = params or {}
+    table_id = (params.get("table") or "").strip()
+    attribute = (params.get("attribute") or params.get("sequenceField") or "").strip()
+
+    if not table_id:
+        raise ValidationFailedError("Pick the table this rule runs over.")
+    if not attribute:
+        raise ValidationFailedError("Pick the attribute this rule checks.")
+
+    declared, schema, table = parse_table_id(table_id)
+    # The database the author picked wins. air_raw_file_log exists in BOTH
+    # databases, and forcing the file-log one regardless put the generated table
+    # beside a copy of the source the author had not chosen — so the outputs of
+    # otherwise identical rules ended up split across two databases.
+    #
+    # Falls back to the file-log database for a bare "schema.table" id, and to
+    # the assurance's own scope for anything that is not a file log.
+    if declared:
+        database = declared
+    elif metadata_catalog.is_file_log(schema, table):
+        database = metadata_catalog.file_log_database()
+    else:
+        database = metadata_catalog.source_for_schema(assurance_id, schema, None, table)
+    ref = TableRef(database=database, schema=schema, table=table)
+
+    columns = await _columns_of(ref)
+    _pick(columns, attribute, "checked", ref)
+
+    partition = (params.get("partitionBy") or "").strip() or None
+    if partition:
+        _pick(columns, partition, "partition", ref)
+
+    operator = (params.get("operator") or "").strip() or None
+    value = params.get("value")
+    if kind == KIND_THRESHOLD:
+        if not operator:
+            raise ValidationFailedError(
+                "Pick a comparison operator.",
+                details={"allowed": sorted(row_rules.OPERATORS)},
+            )
+        if operator not in row_rules.OPERATORS:
+            raise ValidationFailedError(
+                f"'{operator}' is not a comparison operator.",
+                details={"allowed": sorted(row_rules.OPERATORS)},
+            )
+        if value is None or str(value).strip() == "":
+            raise ValidationFailedError("Enter the value to compare against.")
+        value = str(value).strip()
+
+    ordered = [columns[name] for name in columns]
+    order_column = next((c for c in _ORDER_CANDIDATES if c in columns), None)
+
+    options = RowRuleOptions(
+        attribute=attribute,
+        partition_column=partition if kind == KIND_DUPLICATE else None,
+        operator=operator if kind == KIND_THRESHOLD else None,
+        value=value if kind == KIND_THRESHOLD else None,
+        order_column=order_column,
+        source_columns=ordered,
+    )
+
+    plan = ReconPlan(
+        rule_id=rule_id,
+        assurance_id=assurance_id,
+        rule_name=rule_name,
+        left=ref,
+        right=ref,  # one side; repeated so the stored definition's NOT NULLs hold
+        keys=[],
+        metrics=[],
+        kind=kind,
+        row_rule=options,
+        output_schema=settings.recon_output_schema,
+        output_table=output_table_name(rule_id),
+        report_key=report_key_for(rule_id),
+        report_title=rule_name.strip() or rule_id,
+        frequency=frequency,
+        severity=severity,
+        execution_time=execution_time,
+        breach_threshold=max(1, int((case_routing or {}).get("breachThreshold") or 1)),
+        case_routing=case_routing,
+        business_columns=row_rules.output_columns(options),
+    )
+    log.info(
+        "row_rule_compiled",
+        rule_id=rule_id,
+        kind=kind,
+        table=ref.qualified,
+        attribute=attribute,
+        operator=operator,
+        partition=partition,
+        columns=len(ordered),
         output=plan.output_qualified,
     )
     return plan

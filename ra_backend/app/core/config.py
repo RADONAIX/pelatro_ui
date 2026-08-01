@@ -247,6 +247,15 @@ class Settings(BaseSettings):
     # and the engine appends "/cases/ingest" to this value. Without the prefix
     # every raised case 404s — silently, because the call is best-effort.
     cases_api_base: str = "http://127.0.0.1:8001/api"
+    # Reports at or under this many rows are also stored as JSONB on
+    # rule_report, so they can be served and downloaded without touching the
+    # source database. Above it only the metadata is stored and the rows are
+    # read from the rule's generated table — a JSONB copy of a million-row
+    # report would defeat the whole point of generating it in SQL.
+    recon_report_inline_max_rows: int = 5000
+    # Rows fetched per page while streaming a download. Bounds peak memory to
+    # one page whatever the report's size.
+    recon_download_page_rows: int = 5000
     recon_case_timeout_seconds: float = 10.0
 
     # --- ra-platform integration: Airflow REST (pipeline control) ----------
