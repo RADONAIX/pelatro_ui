@@ -109,7 +109,11 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-        expose_headers=["X-Request-ID", "X-Checksum-SHA256"],
+        # Content-Disposition is exposed because the UI is a different origin
+        # from this API, and a cross-origin response hides every header not
+        # named here. Without it a download's JS cannot read the filename the
+        # server chose and has to invent one.
+        expose_headers=["X-Request-ID", "X-Checksum-SHA256", "Content-Disposition"],
     )
     app.add_middleware(RequestContextMiddleware)
 

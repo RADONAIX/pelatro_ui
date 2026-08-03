@@ -111,7 +111,7 @@ export async function fetchReconPage(
   key: string,
   opts: {
     status?: ReconStatus | null;
-    /** Matched against every column, server-side — see reportDownloadUrl. */
+    /** Matched against every column, server-side. */
     search?: string;
     limit: number;
     offset: number;
@@ -217,13 +217,7 @@ export async function executeRule(ruleId: string) {
   return data;
 }
 
-/**
- * Download URL for a stored report.
- *
- * Built rather than fetched: the file is streamed and can be very large, so it
- * is handed to the browser to download instead of being pulled through axios
- * into memory first.
- */
+/** The query string shared by every download: format plus the on-screen filters. */
 function downloadParams(
   fmt: "csv" | "excel",
   filters: { status?: ReconStatus | null; search?: string },
@@ -244,6 +238,29 @@ function filenameFrom(disposition: unknown, fallback: string): string {
 }
 
 /**
+ * `<report name>_<date_time>.<ext>` — the same shape the server builds.
+ *
+ * Duplicated here on purpose, as a fallback: the server's name arrives in
+ * Content-Disposition, which a proxy may strip and which a cross-origin
+ * response hides unless the header is explicitly exposed. Without this the
+ * fallback was the execution id, which tells a reader nothing.
+ */
+export function reportFileName(
+  name: string,
+  when: string | null | undefined,
+  fmt: "csv" | "excel",
+): string {
+  const at = when ? new Date(when) : new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp =
+    `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}` +
+    `_${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;
+  // Same safe set as the server: a report title is author-supplied text.
+  const safe = (name || "report").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+  return `${safe || "report"}_${stamp}.${fmt === "excel" ? "xls" : "csv"}`;
+}
+
+/**
  * Download a stored report, authenticated.
  *
  * NOT a plain link. The download endpoint requires a bearer token, and a token
@@ -261,6 +278,7 @@ export async function downloadReport(
   executionId: string,
   fmt: "csv" | "excel",
   filters: { status?: ReconStatus | null; search?: string } = {},
+  fallbackName?: string,
 ): Promise<void> {
   const { data, headers } = await api.get<Blob>(
     `/reconciliation/reports/execution/${encodeURIComponent(executionId)}/download?${downloadParams(fmt, filters)}`,
@@ -273,7 +291,7 @@ export async function downloadReport(
     link.href = url;
     link.download = filenameFrom(
       headers?.["content-disposition"],
-      `${executionId.slice(0, 8)}.${fmt === "excel" ? "xls" : "csv"}`,
+      fallbackName ?? reportFileName("report", null, fmt),
     );
     document.body.appendChild(link);
     link.click();

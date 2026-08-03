@@ -7,6 +7,7 @@ import {
   fetchReconExecutions,
   fetchReconPage,
   downloadReport,
+  reportFileName,
   runReconNow,
   type ExecutionSummary,
   type ReconExecution,
@@ -177,7 +178,19 @@ export function ReconReportView({ reportKey }: { reportKey: string }) {
     if (downloading) return;
     setDownloading(true);
     try {
-      await downloadReport(executionId, fmt, { status, search });
+      await downloadReport(
+        executionId,
+        fmt,
+        { status, search },
+        // Named from what this screen already knows, so the file is still
+        // "<report name>_<date_time>" if the server's header does not survive
+        // the trip.
+        reportFileName(
+          summary?.ruleName || page?.title || "report",
+          summary?.executionStart ?? page?.executedAt,
+          fmt,
+        ),
+      );
     } catch (e) {
       // Silence here would look identical to a browser that blocked the save,
       // so the failure is stated.
