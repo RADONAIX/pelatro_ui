@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { StatTile } from "@/components/ui-kit/StatTile";
 import { MultiSelect } from "@/components/ui-kit/MultiSelect";
 import { loadConnections, connectionTarget, type DbConnection } from "@/lib/dbConnections";
+import { APPS } from "@/lib/assurance/platform-metadata";
 
 export const Route = createFileRoute("/data-sources")({ component: DataSourcesPage });
 
@@ -24,19 +25,44 @@ export const Route = createFileRoute("/data-sources")({ component: DataSourcesPa
 // and Mediation — so `useCase: string` became `useCases: string[]`. Unlike the
 // v2→v3 bump this one migrates rather than discards: the old single value maps
 // cleanly onto a one-element array, so nobody loses sources they onboarded.
-const STORAGE_KEY = "radonaix_data_sources_v4";
+//
+// v5: the use-case list is now the real assurance list, and feeds were added
+// for the five assurances that had none. See USE_CASES and RENAMED_USE_CASES.
+const STORAGE_KEY = "radonaix_data_sources_v5";
+const LEGACY_KEY_V4 = "radonaix_data_sources_v4";
 const LEGACY_KEY_V3 = "radonaix_data_sources_v3";
 
-const USE_CASES = [
-  "Mediation Assurance",
-  "Usage Assurance",
-  "Billing Assurance",
-  "Rating Assurance",
-  "Roaming Assurance",
-  "Subscription Assurance",
-] as const;
+// Derived from the assurance catalogue rather than typed out, because these
+// strings decide which assurance consumes a feed — a hand-kept copy had drifted
+// into offering three assurances that do not exist (Mediation, Roaming,
+// Subscription) while missing five that do. A ninth assurance now shows up here
+// on its own.
+const USE_CASES = APPS.map((a) => a.name);
 
-const SOURCE_TYPES = ["AIR CDR", "SDP CDR", "Diameter", "Mediation Feed", "Roaming TAP", "Custom"] as const;
+/**
+ * Where the retired names map to, so stored rows keep meaning something.
+ *
+ * These were never assurance apps — they are the layers or segments the real
+ * ones cover — so each points at the assurance that actually owns that work.
+ */
+const RENAMED_USE_CASES: Record<string, string> = {
+  "Mediation Assurance": "Usage Assurance",
+  "Roaming Assurance": "Partner Assurance",
+  "Subscription Assurance": "Charging Assurance",
+};
+
+const SOURCE_TYPES = [
+  "AIR CDR",
+  "SDP CDR",
+  "Diameter",
+  "Mediation Feed",
+  "Roaming TAP",
+  "Probe Feed",
+  "Payment Feed",
+  "File Extract",
+  "API Feed",
+  "Custom",
+] as const;
 
 interface DataSource {
   id: string;
@@ -59,20 +85,53 @@ type LegacyDataSourceV3 = Omit<DataSource, "useCases"> & { useCase?: string };
 // Note SDP, MSC and Exception Handler all share conn-rafms-replica: that reuse is
 // the reason connections were pulled out of the per-source rows.
 const SEED: DataSource[] = [
-  { id: "seed-air", name: "AIR", key: "air", type: "AIR CDR", useCases: ["Usage Assurance", "Mediation Assurance"], connectionId: "conn-rafms-primary", recordsPerDay: 4_050_000, enabled: true },
-  { id: "seed-sdp", name: "SDP", key: "sdp", type: "SDP CDR", useCases: ["Rating Assurance", "Mediation Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 40_550_000, enabled: true },
-  { id: "seed-msc", name: "MSC Voice", key: "msc", type: "Diameter", useCases: ["Usage Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 12_800_000, enabled: true },
-  { id: "seed-ocs", name: "OCS Charging", key: "ocs", type: "Diameter", useCases: ["Billing Assurance", "Rating Assurance"], connectionId: "conn-ocs-charging", recordsPerDay: 28_300_000, enabled: true },
-  { id: "seed-exc", name: "Exception Handler", key: "exception", type: "Custom", useCases: ["Mediation Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 850_000, enabled: true },
-  { id: "seed-rech", name: "Prepaid Recharge", key: "recharge", type: "Mediation Feed", useCases: ["Subscription Assurance"], connectionId: "conn-recharge-store", recordsPerDay: 3_600_000, enabled: false },
+  { id: "seed-air", name: "AIR", key: "air", type: "AIR CDR", useCases: ["Usage Assurance", "Rating Assurance"], connectionId: "conn-rafms-primary", recordsPerDay: 4_050_000, enabled: true },
+  { id: "seed-sdp", name: "SDP", key: "sdp", type: "SDP CDR", useCases: ["Rating Assurance", "Charging Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 40_550_000, enabled: true },
+  { id: "seed-msc", name: "MSC Voice", key: "msc", type: "Diameter", useCases: ["Usage Assurance", "Network Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 12_800_000, enabled: true },
+  { id: "seed-ocs", name: "OCS Charging", key: "ocs", type: "Diameter", useCases: ["Charging Assurance", "Billing Assurance"], connectionId: "conn-ocs-charging", recordsPerDay: 28_300_000, enabled: true },
+  { id: "seed-exc", name: "Exception Handler", key: "exception", type: "Custom", useCases: ["Usage Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 850_000, enabled: true },
+  { id: "seed-rech", name: "Prepaid Recharge", key: "recharge", type: "Mediation Feed", useCases: ["Charging Assurance", "Collection Assurance"], connectionId: "conn-recharge-store", recordsPerDay: 3_600_000, enabled: false },
   { id: "seed-bill", name: "Postpaid Billing", key: "billing", type: "Mediation Feed", useCases: ["Billing Assurance"], connectionId: "conn-billing-core", recordsPerDay: 2_100_000, enabled: true },
+
+  // --- feeds for the assurances that previously had none --------------------
+  // Partner: what we owe roaming and interconnect partners, and what they bill
+  // us. Both sit on the settlement store rather than the network side, because
+  // the assurance question is commercial, not technical.
+  { id: "seed-tap", name: "Roaming TAP In/Out", key: "tap", type: "Roaming TAP", useCases: ["Partner Assurance", "Usage Assurance"], connectionId: "conn-partner-settlement", recordsPerDay: 640_000, enabled: true },
+  { id: "seed-icx", name: "Interconnect Settlement", key: "interconnect", type: "File Extract", useCases: ["Partner Assurance", "Billing Assurance"], connectionId: "conn-partner-settlement", recordsPerDay: 210_000, enabled: true },
+
+  // Network: the highest-volume feeds on the platform by an order of magnitude,
+  // which is why they sit on ClickHouse and not the OLTP replica.
+  { id: "seed-probe", name: "Network Probe", key: "probe", type: "Probe Feed", useCases: ["Network Assurance"], connectionId: "conn-network-probe", recordsPerDay: 96_400_000, enabled: true },
+  { id: "seed-ran", name: "RAN Session Records", key: "ran_session", type: "Probe Feed", useCases: ["Network Assurance", "Usage Assurance"], connectionId: "conn-network-probe", recordsPerDay: 54_200_000, enabled: true },
+
+  // Collection: money in, and money that did not arrive.
+  { id: "seed-pay", name: "Payment Gateway", key: "payments", type: "Payment Feed", useCases: ["Collection Assurance", "Billing Assurance"], connectionId: "conn-payments", recordsPerDay: 1_450_000, enabled: true },
+  { id: "seed-dun", name: "Dunning & Receivables", key: "dunning", type: "File Extract", useCases: ["Collection Assurance"], connectionId: "conn-billing-core", recordsPerDay: 320_000, enabled: true },
+
+  // Migration: the two sides of the comparison — what the legacy stack holds
+  // against what landed in the target.
+  { id: "seed-legacy", name: "Legacy BSS Extract", key: "legacy_bss", type: "File Extract", useCases: ["Migration Assurance"], connectionId: "conn-legacy-bss", recordsPerDay: 5_800_000, enabled: true },
+  { id: "seed-migstage", name: "Migration Staging", key: "migration_stage", type: "Custom", useCases: ["Migration Assurance", "Billing Assurance"], connectionId: "conn-rafms-replica", recordsPerDay: 5_800_000, enabled: true },
+
+  // Reference data, not traffic: tariffs and offers change rarely, but a stale
+  // catalogue is what makes rating wrong in the first place.
+  { id: "seed-catalog", name: "Product Catalogue", key: "catalog", type: "API Feed", useCases: ["Rating Assurance", "Charging Assurance"], connectionId: "conn-rafms-primary", recordsPerDay: 12_000, enabled: true },
 ];
 
-/** Widen a stored row to the current shape. Safe to run on already-v4 rows. */
+/** Widen a stored row to the current shape. Safe to run on already-v5 rows. */
 function migrate(row: DataSource & LegacyDataSourceV3): DataSource {
   const { useCase, ...rest } = row;
-  if (Array.isArray(rest.useCases) && rest.useCases.length) return rest as DataSource;
-  return { ...rest, useCases: useCase ? [useCase] : [] } as DataSource;
+  // v4 rows already carry an array; v3 rows carry a single `useCase` instead.
+  const hasArray = Array.isArray(rest.useCases) && rest.useCases.length > 0;
+  const legacySingle = useCase ? [useCase] : [];
+  const stored = hasArray ? rest.useCases : legacySingle;
+  // Point retired names at the assurance that took over that work, and drop
+  // anything else unrecognised — a row tagged with an assurance that no longer
+  // exists would show a badge nothing can consume.
+  const renamed = stored.map((u) => RENAMED_USE_CASES[u] ?? u);
+  const useCases = [...new Set(renamed)].filter((u) => USE_CASES.includes(u));
+  return { ...rest, useCases } as DataSource;
 }
 
 function load(): DataSource[] {
@@ -88,9 +147,23 @@ function load(): DataSource[] {
       return null; /* ignore malformed storage */
     }
   };
-  // v4 first; otherwise carry v3 rows forward rather than silently reseeding
-  // over sources someone onboarded.
-  return read(STORAGE_KEY) ?? read(LEGACY_KEY_V3) ?? SEED;
+
+  const current = read(STORAGE_KEY);
+  if (current) return current;
+
+  // Upgrading from v4/v3: keep every source the user has — with its use cases
+  // remapped by migrate() — and append the seeds they have never seen, matching
+  // on id so an edited row keeps their version.
+  //
+  // Runs only while no v5 key exists, so a seed deleted AFTER the upgrade stays
+  // deleted. One deleted before it comes back once: the cost of getting the new
+  // feeds into an existing browser, which beats them never arriving.
+  const legacy = read(LEGACY_KEY_V4) ?? read(LEGACY_KEY_V3);
+  if (legacy) {
+    const known = new Set(legacy.map((d) => d.id));
+    return [...legacy, ...SEED.filter((d) => !known.has(d.id))];
+  }
+  return SEED;
 }
 
 function newId(): string {

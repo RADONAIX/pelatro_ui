@@ -10,7 +10,12 @@
 // into browser storage would be a real security problem if this were ever wired
 // to a backend. In a real deployment credentials come from env/vault server-side.
 
-const STORAGE_KEY = "radonaix_db_connections_v1";
+// v2: four more targets, for the systems the newer assurances read — partner
+// settlement, network probes, payments and the legacy BSS that Migration
+// Assurance compares against. The key is bumped so those reach anyone who has
+// already used the screen; see loadConnections for how stored rows survive it.
+const STORAGE_KEY = "radonaix_db_connections_v2";
+const LEGACY_KEY_V1 = "radonaix_db_connections_v1";
 
 export const ENGINES = ["PostgreSQL", "ClickHouse", "MySQL", "Oracle", "SQL Server"] as const;
 
@@ -108,18 +113,93 @@ export const SEED: DbConnection[] = [
     enabled: false,
     lastTestedAt: null,
   },
+  {
+    id: "conn-partner-settlement",
+    name: "partner-settlement",
+    engine: "PostgreSQL",
+    host: "10.200.37.161",
+    port: 5432,
+    database: "partner_settlement",
+    username: "partner_reader",
+    sslMode: "require",
+    poolSize: 10,
+    enabled: true,
+    lastTestedAt: null,
+  },
+  {
+    // ClickHouse rather than Postgres: probe records arrive at a volume no OLTP
+    // store would carry, and every network query over them is an aggregate.
+    id: "conn-network-probe",
+    name: "network-probe",
+    engine: "ClickHouse",
+    host: "10.200.37.171",
+    port: 8123,
+    database: "network_probe",
+    username: "probe_reader",
+    sslMode: "disable",
+    poolSize: 16,
+    enabled: true,
+    lastTestedAt: null,
+  },
+  {
+    id: "conn-payments",
+    name: "payments",
+    engine: "PostgreSQL",
+    host: "10.200.37.155",
+    port: 5432,
+    database: "payments",
+    username: "payments_reader",
+    sslMode: "require",
+    poolSize: 12,
+    enabled: true,
+    lastTestedAt: null,
+  },
+  {
+    // The system being migrated FROM. Read-only by nature, and small pool: it is
+    // a decommissioning platform, not one to load up.
+    id: "conn-legacy-bss",
+    name: "legacy-bss",
+    engine: "Oracle",
+    host: "10.200.37.180",
+    port: 1521,
+    database: "legacy_bss",
+    username: "legacy_reader",
+    sslMode: "verify-ca",
+    poolSize: 6,
+    enabled: true,
+    lastTestedAt: null,
+  },
 ];
+
+function read(key: string): DbConnection[] | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = raw ? (JSON.parse(raw) as DbConnection[]) : null;
+    // Non-empty stored list wins; empty/blank falls through so the demo never
+    // opens on a blank screen after everything was deleted.
+    return Array.isArray(parsed) && parsed.length ? parsed : null;
+  } catch {
+    return null; /* ignore malformed storage */
+  }
+}
 
 export function loadConnections(): DbConnection[] {
   if (typeof window === "undefined") return SEED;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as DbConnection[]) : null;
-    // Non-empty stored list wins; empty/blank falls back to the seed so the demo
-    // never opens on a blank screen after everything was deleted.
-    if (Array.isArray(parsed) && parsed.length) return parsed;
-  } catch {
-    /* ignore malformed storage */
+
+  const current = read(STORAGE_KEY);
+  if (current) return current;
+
+  // Upgrading from v1: keep everything the user has, and append the seeds they
+  // have never seen. Matching on id, so a connection someone edited keeps their
+  // version rather than being reset to ours.
+  //
+  // This runs only while no v2 key exists, so a seed deleted AFTER the upgrade
+  // stays deleted. One deleted before it does come back — the cost of shipping
+  // new targets to an existing browser, and preferable to them never arriving.
+  const legacy = read(LEGACY_KEY_V1);
+  if (legacy) {
+    const known = new Set(legacy.map((c) => c.id));
+    return [...legacy, ...SEED.filter((c) => !known.has(c.id))];
   }
   return SEED;
 }
