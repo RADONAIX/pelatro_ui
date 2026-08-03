@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import type { AppMetadata, RuleCategory } from "@/lib/assurance/platform-metadata";
-import { RULE_CATEGORIES, buildControls, ruleCategories } from "@/lib/assurance/platform-metadata";
+import type { AppMetadata } from "@/lib/assurance/platform-metadata";
+import { buildControls } from "@/lib/assurance/platform-metadata";
 import { Panel, SectionHeader, Tag } from "../primitives";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,10 @@ import {
   ingestCase,
 } from "@/lib/cases";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 
 export function ControlsSection({ app }: { app: AppMetadata }) {
   const all = useMemo(() => buildControls(app, 24), [app]);
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<RuleCategory | "All">("All");
   const [raising, setRaising] = useState<string | null>(null);
   const { rules, loading, error, reload, addRule, editRule, removeRule, toggleState } =
     useCustomRules(app.id);
@@ -210,23 +208,15 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
     }
   };
 
-  const scoped = RULE_CATEGORIES.filter(
-    (c) => app.ruleTypes.includes(c) || app.ruleLibrary.some((r) => ruleCategories(r).includes(c)),
-  );
+  // Search only. The category filter went with the sidebar that set it — it had
+  // no other control, so keeping it would have pinned every list to "All".
+  const matches = (name: string, id: string) => {
+    const q = query.toLowerCase();
+    return name.toLowerCase().includes(q) || id.toLowerCase().includes(q);
+  };
 
-  const rows = all.filter(
-    (c) =>
-      (category === "All" || c.categories.includes(category)) &&
-      (c.name.toLowerCase().includes(query.toLowerCase()) ||
-        c.id.toLowerCase().includes(query.toLowerCase())),
-  );
-
-  const customRows = rules.filter(
-    (r) =>
-      (category === "All" || r.category === category) &&
-      (r.name.toLowerCase().includes(query.toLowerCase()) ||
-        r.id.toLowerCase().includes(query.toLowerCase())),
-  );
+  const rows = all.filter((c) => matches(c.name, c.id));
+  const customRows = rules.filter((r) => matches(r.name, r.id));
 
   return (
     <div className="space-y-5">
@@ -247,32 +237,10 @@ export function ControlsSection({ app }: { app: AppMetadata }) {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-        <Panel title="Rule categories in scope">
-          <div className="p-2">
-            {(["All", ...scoped] as (RuleCategory | "All")[]).map((c) => (
-              <button
-                key={c}
-                onClick={() => setCategory(c)}
-                className={cn(
-                  "block w-full rounded px-2.5 py-1.5 text-left text-sm transition-colors",
-                  category === c ? "bg-primary/12 text-primary" : "text-muted-foreground hover:bg-accent",
-                )}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-          <div className="border-t border-border p-3">
-            <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-              Hidden by metadata
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {RULE_CATEGORIES.filter((c) => !scoped.includes(c)).join(", ")}
-            </p>
-          </div>
-        </Panel>
-
+      {/* No "Rule categories in scope" sidebar — removed by request, and with
+          it the category filter it was the only control for. Controls now takes
+          the full width; the search box still matches on rule name and id. */}
+      <div className="grid gap-4">
         <Panel
           title="Controls"
           subtitle={
